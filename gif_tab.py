@@ -1,17 +1,22 @@
-"""GIF maker tab: pick videos, optionally set a timeframe for each one, then convert them."""
+"""GIF maker page: pick videos, optionally set a timeframe for each one, then convert them."""
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import messagebox
+from tkinter import ttk
 
-from PIL import ImageTk
+import customtkinter as ctk
+from PIL import Image
 
 import gif_maker
+import icons
 import theme
 from media_utils import find_videos, probe_duration
+from theme import button, card, entry, label, muted
+from widgets import Page, tree_in_card
 
 MIN_CLIP = 0.1  # shortest allowed timeframe, in seconds
-PREVIEW_SIZE = (320, 180)
+PREVIEW_SIZE = (260, 146)
 
 
 def fmt_time(seconds):
@@ -33,7 +38,7 @@ class Timeline(tk.Canvas):
     PAD = 14
 
     def __init__(self, master, on_drag, on_release):
-        super().__init__(master, height=60, background=theme.FIELD, highlightthickness=0)
+        super().__init__(master, height=56, background=theme.FIELD, highlightthickness=0)
         self.on_drag = on_drag
         self.on_release = on_release
         self.duration = 0.0
@@ -62,15 +67,15 @@ class Timeline(tk.Canvas):
         if not self.duration:
             return
         w, h = self.winfo_width(), self.winfo_height()
-        top, bottom = 14, h - 14
-        self.create_rectangle(self.PAD, top, w - self.PAD, bottom, fill=theme.BTN, outline="")
+        top, bottom = 12, h - 12
+        self.create_rectangle(self.PAD, top, w - self.PAD, bottom, fill=theme.TRACK, outline="")
         xs, xe = self._x(self.start), self._x(self.end)
-        self.create_rectangle(xs, top, xe, bottom, fill=theme.ACCENT, outline="")
+        self.create_rectangle(xs, top, xe, bottom, fill=theme.GREEN, outline="")
         for x in (xs, xe):
-            self.create_line(x, top - 6, x, bottom + 6, fill="#ffffff", width=3)
-        self.create_text(self.PAD, h - 2, text="0:00.0", anchor="sw", fill=theme.MUTED, font=("Segoe UI", 9))
-        self.create_text(w - self.PAD, h - 2, text=fmt_time(self.duration), anchor="se",
-                         fill=theme.MUTED, font=("Segoe UI", 9))
+            self.create_line(x, top - 5, x, bottom + 5, fill="#ffffff", width=3)
+        self.create_text(self.PAD, h - 1, text="0:00.0", anchor="sw", fill=theme.MUTED, font=(theme.FAMILY, 9))
+        self.create_text(w - self.PAD, h - 1, text=fmt_time(self.duration), anchor="se",
+                         fill=theme.MUTED, font=(theme.FAMILY, 9))
 
     def _press(self, event):
         if not self.duration:
@@ -96,134 +101,122 @@ class Timeline(tk.Canvas):
             self.on_release(self.start, self.end)
 
 
-class GifTab(ttk.Frame):
-    def __init__(self, master, app):
-        super().__init__(master, padding=10)
-        self.app = app
+class GifTab(Page):
+    title = "GIF maker"
+    subtitle = "Turn videos into GIFs. Pick a timeframe for any video, or leave it to convert the whole thing."
+
+    def build(self):
         self.folder = tk.StringVar()
-        self.recursive = tk.BooleanVar(value=True)
+        self.recursive = tk.IntVar(value=1)
         self.fps = tk.StringVar(value="12")
         self.width = tk.StringVar(value="480")
         self.quality = tk.StringVar(value="Standard")
         self.out_dir = tk.StringVar()
         self.start_text = tk.StringVar()
         self.end_text = tk.StringVar()
-        self.length_text = tk.StringVar()
         self.durations = {}  # video path (str) -> seconds
         self.ranges = {}     # video path (str) -> (start, end), only once a timeframe is set
         self.current = None  # path shown in the timeframe editor
         self._preview_after = None
         self._preview_id = 0
-        self._photos = []    # keep references so Tk doesn't drop the images
-        self.columnconfigure(1, weight=1)
-        self.rowconfigure(4, weight=1)
-        self._build()
+        self._images = []    # keep references so the preview images aren't dropped
+        self._blank = ctk.CTkImage(light_image=Image.new("RGBA", (1, 1), (0, 0, 0, 0)),
+                                   dark_image=Image.new("RGBA", (1, 1), (0, 0, 0, 0)), size=(1, 1))
+        self.body.grid_rowconfigure(2, weight=1)
 
-    # ---------- layout ----------
-    def _build(self):
-        ttk.Label(self, text="Video folder:").grid(row=0, column=0, sticky="w", padx=6, pady=4)
-        ttk.Entry(self, textvariable=self.folder).grid(row=0, column=1, sticky="ew", padx=6, pady=4)
-        ttk.Button(self, text="Browse...", command=self._browse_folder).grid(row=0, column=2, padx=6, pady=4)
+        # Source and output settings
+        setup = card(self.body)
+        setup.grid(row=0, column=0, sticky="ew")
+        setup.grid_columnconfigure(1, weight=1)
+        self.folder_row(setup, 0, "Video folder", self.folder, "Choose the video folder")
 
-        top = ttk.Frame(self)
-        top.grid(row=1, column=0, columnspan=3, sticky="w", padx=6, pady=2)
-        ttk.Checkbutton(top, text="Include subfolders", variable=self.recursive).pack(side="left", padx=(0, 12))
-        ttk.Button(top, text="Load videos", style="Go.TButton", command=self.load_videos).pack(side="left")
+        load = ctk.CTkFrame(setup, fg_color="transparent")
+        load.grid(row=1, column=0, columnspan=3, sticky="w", padx=18, pady=(0, 8))
+        theme.switch(load, "Include subfolders", self.recursive).pack(side="left", padx=(0, 22))
+        button(load, "Load videos", self.load_videos, "primary", icon=icons.icon("gif", "#ffffff", 18)).pack(side="left")
 
-        settings = ttk.Frame(self)
-        settings.grid(row=2, column=0, columnspan=3, sticky="w", padx=6, pady=4)
-        ttk.Label(settings, text="FPS").pack(side="left")
-        ttk.Entry(settings, textvariable=self.fps, width=5).pack(side="left", padx=(4, 14))
-        ttk.Label(settings, text="Width (px)").pack(side="left")
-        ttk.Entry(settings, textvariable=self.width, width=6).pack(side="left", padx=(4, 14))
-        ttk.Label(settings, text="Quality").pack(side="left")
-        quality = ttk.Combobox(settings, textvariable=self.quality, values=list(gif_maker.QUALITY_PRESETS),
-                               state="readonly", width=10)
-        quality.pack(side="left", padx=(4, 6))
-        ttk.Label(settings, text="(higher = better colours, bigger file, slower)",
-                  style="Muted.TLabel").pack(side="left", padx=(0, 6))
+        settings = ctk.CTkFrame(setup, fg_color="transparent")
+        settings.grid(row=2, column=0, columnspan=3, sticky="w", padx=18, pady=(4, 8))
+        muted(settings, "FPS").pack(side="left")
+        entry(settings, self.fps, width=64).pack(side="left", padx=(8, 18))
+        muted(settings, "Width (px)").pack(side="left")
+        entry(settings, self.width, width=72).pack(side="left", padx=(8, 18))
+        muted(settings, "Quality").pack(side="left")
+        ctk.CTkComboBox(settings, values=list(gif_maker.QUALITY_PRESETS), variable=self.quality,
+                        state="readonly", width=142, height=36, corner_radius=8, font=theme.font(13),
+                        fg_color=theme.FIELD, border_color=theme.CARD_BORDER, text_color=theme.TEXT,
+                        button_color=theme.SECONDARY, button_hover_color=theme.SECONDARY_HOVER,
+                        dropdown_fg_color=theme.CARD, dropdown_hover_color=theme.SECONDARY,
+                        dropdown_text_color=theme.TEXT).pack(side="left", padx=(8, 12))
+        muted(settings, "Higher quality = better colours, bigger file, slower").pack(side="left")
 
-        output = ttk.Frame(self)
-        output.grid(row=3, column=0, columnspan=3, sticky="ew", padx=6, pady=4)
-        output.columnconfigure(1, weight=1)
-        ttk.Label(output, text="Save GIFs to:").grid(row=0, column=0, sticky="w")
-        ttk.Entry(output, textvariable=self.out_dir).grid(row=0, column=1, sticky="ew", padx=6)
-        ttk.Button(output, text="Browse...", command=self._browse_out).grid(row=0, column=2)
-        ttk.Label(output, text="(leave blank to save each GIF beside its video)",
-                  style="Muted.TLabel").grid(row=1, column=1, sticky="w", padx=6)
+        self.folder_row(setup, 3, "Save GIFs to", self.out_dir, "Save GIFs to...")
+        muted(setup, "Leave the output folder empty to save each GIF beside its video.").grid(
+            row=4, column=1, sticky="w", padx=6, pady=(0, 14))
 
-        list_frame = ttk.Frame(self)
-        list_frame.grid(row=4, column=0, columnspan=3, sticky="nsew", padx=6, pady=4)
-        self.tree = ttk.Treeview(list_frame, columns=("file", "length", "range"),
-                                 show="headings", selectmode="extended", height=8)
-        for col, text, width in (("file", "File", 420), ("length", "Length", 80), ("range", "Timeframe", 200)):
-            self.tree.heading(col, text=text)
-            self.tree.column(col, width=width, stretch=(col == "file"))
-        scroll = ttk.Scrollbar(list_frame, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=scroll.set)
-        self.tree.pack(side="left", fill="both", expand=True)
-        scroll.pack(side="right", fill="y")
+        # Video list
+        list_card = card(self.body)
+        list_card.grid(row=2, column=0, sticky="nsew", pady=(12, 0))
+        self.tree = tree_in_card(list_card, ("file", "length", "range"),
+                                 ("File", "Length", "Timeframe"), (520, 90, 200))
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
 
-        buttons = ttk.Frame(self)
-        buttons.grid(row=5, column=0, columnspan=3, sticky="w", padx=6, pady=6)
-        ttk.Button(buttons, text="Select all", command=self.select_all).pack(side="left")
-        ttk.Button(buttons, text="Clear timeframes (selected)",
-                   command=self.clear_selected_ranges).pack(side="left", padx=6)
-        ttk.Button(buttons, text="Convert selected", style="Go.TButton",
-                   command=lambda: self.convert(selected_only=True)).pack(side="left", padx=6)
-        ttk.Button(buttons, text="Convert all", style="Go.TButton",
-                   command=lambda: self.convert(selected_only=False)).pack(side="left")
+        # Actions
+        actions = ctk.CTkFrame(self.body, fg_color="transparent")
+        actions.grid(row=3, column=0, sticky="ew", pady=10)
+        button(actions, "Select all", self.select_all).pack(side="left")
+        button(actions, "Clear timeframes", self.clear_selected_ranges).pack(side="left", padx=8)
+        button(actions, "Convert selected", lambda: self.convert(selected_only=True), "primary",
+               icon=icons.icon("gif", "#ffffff", 18)).pack(side="left")
+        button(actions, "Convert all", lambda: self.convert(selected_only=False), "primary").pack(side="left", padx=8)
 
-        editor = ttk.LabelFrame(self, text="Timeframe (click a video in the list to set its clip)")
-        editor.grid(row=6, column=0, columnspan=3, sticky="ew", padx=6, pady=(4, 0))
+        # Timeframe editor
+        editor = card(self.body)
+        editor.grid(row=4, column=0, sticky="ew")
+        head = ctk.CTkFrame(editor, fg_color="transparent")
+        head.pack(fill="x", padx=18, pady=(12, 6))
+        label(head, "Timeframe", size=15, weight="bold").pack(side="left")
+        muted(head, "   Click a video in the list to set its clip (drag the handles or type times)").pack(side="left")
+
         self.timeline = Timeline(editor, on_drag=self._on_drag, on_release=self._on_release)
-        self.timeline.pack(fill="x", padx=8, pady=(8, 4))
+        self.timeline.pack(fill="x", padx=18, pady=(0, 10))
 
-        controls = ttk.Frame(editor)
-        controls.pack(fill="x", padx=8)
-        ttk.Label(controls, text="Start").pack(side="left")
-        start_entry = ttk.Entry(controls, textvariable=self.start_text, width=9)
-        start_entry.pack(side="left", padx=(4, 12))
+        controls = ctk.CTkFrame(editor, fg_color="transparent")
+        controls.pack(fill="x", padx=18)
+        muted(controls, "Start").pack(side="left")
+        start_entry = entry(controls, self.start_text, width=96)
+        start_entry.pack(side="left", padx=(8, 16))
         start_entry.bind("<Return>", lambda _e: self._apply_entries())
-        ttk.Label(controls, text="End").pack(side="left")
-        end_entry = ttk.Entry(controls, textvariable=self.end_text, width=9)
-        end_entry.pack(side="left", padx=(4, 12))
+        muted(controls, "End").pack(side="left")
+        end_entry = entry(controls, self.end_text, width=96)
+        end_entry.pack(side="left", padx=(8, 16))
         end_entry.bind("<Return>", lambda _e: self._apply_entries())
-        ttk.Button(controls, text="Apply", command=self._apply_entries).pack(side="left")
-        ttk.Button(controls, text="Whole video", command=self._reset_range).pack(side="left", padx=8)
-        ttk.Label(controls, textvariable=self.length_text, style="Status.TLabel").pack(side="left", padx=8)
+        button(controls, "Apply", self._apply_entries).pack(side="left")
+        button(controls, "Whole video", self._reset_range).pack(side="left", padx=8)
+        self.length_label = label(controls, "", weight="bold")
+        self.length_label.pack(side="left", padx=10)
 
-        previews = ttk.Frame(editor)
-        previews.pack(pady=8)
+        previews = ctk.CTkFrame(editor, fg_color="transparent")
+        previews.pack(fill="x", padx=18, pady=(12, 16))
         self.start_preview = self._preview_box(previews, "Clip starts at")
         self.end_preview = self._preview_box(previews, "Clip ends at")
 
     def _preview_box(self, parent, caption):
-        box = ttk.Frame(parent)
-        box.pack(side="left", padx=12)
-        ttk.Label(box, text=caption, style="Muted.TLabel").pack()
-        label = ttk.Label(box, text="(no video selected)", width=40, anchor="center", style="Muted.TLabel")
-        label.pack()
-        return label
+        box = ctk.CTkFrame(parent, fg_color=theme.FIELD, corner_radius=10)
+        box.pack(side="left", padx=(0, 16))
+        muted(box, caption).pack(anchor="w", padx=12, pady=(8, 4))
+        view = ctk.CTkLabel(box, text="No video selected", width=PREVIEW_SIZE[0], height=PREVIEW_SIZE[1],
+                            font=theme.font(12), text_color=theme.MUTED)
+        view.pack(padx=12, pady=(0, 12))
+        return view
 
-    # ---------- folders and loading ----------
-    def _browse_folder(self):
-        chosen = filedialog.askdirectory()
-        if chosen:
-            self.folder.set(chosen)
-
-    def _browse_out(self):
-        chosen = filedialog.askdirectory(title="Save GIFs to...")
-        if chosen:
-            self.out_dir.set(chosen)
-
+    # ---------- loading ----------
     def load_videos(self):
         folder = self.folder.get().strip()
         if not Path(folder).is_dir():
             messagebox.showerror("Folder not found", "Choose a valid video folder.")
             return
-        videos = find_videos(folder, self.recursive.get())
+        videos = find_videos(folder, bool(self.recursive.get()))
         self.tree.delete(*self.tree.get_children())
         self.durations.clear()
         self.ranges.clear()
@@ -278,14 +271,17 @@ class GifTab(ttk.Frame):
         self.timeline.set_range(0.0, 0.0, 0.0)
         self.start_text.set("")
         self.end_text.set("")
-        self.length_text.set("")
-        self.start_preview.configure(image="", text="(no video selected)")
-        self.end_preview.configure(image="", text="(no video selected)")
+        self.length_label.configure(text="")
+        self._reset_preview(self.start_preview)
+        self._reset_preview(self.end_preview)
+
+    def _reset_preview(self, view):
+        view.configure(image=self._blank, text="No video selected")
 
     def _update_labels(self, start, end):
         self.start_text.set(fmt_time(start))
         self.end_text.set(fmt_time(end))
-        self.length_text.set(f"Length: {end - start:.1f}s")
+        self.length_label.configure(text=f"Length: {end - start:.1f}s")
 
     def _store(self, start, end):
         """Remember the timeframe for the current video (or clear it if it covers the whole video)."""
@@ -368,16 +364,16 @@ class GifTab(ttk.Frame):
     def _show_previews(self, token, first, last):
         if token != self._preview_id:  # a newer preview has been requested since
             return
-        for label, img in ((self.start_preview, first), (self.end_preview, last)):
+        for view, img in ((self.start_preview, first), (self.end_preview, last)):
             if img is None:
-                label.configure(image="", text="(no frame)")
+                view.configure(image=self._blank, text="Could not read this frame")
                 continue
             img = img.copy()
             img.thumbnail(PREVIEW_SIZE)
-            photo = ImageTk.PhotoImage(img)
-            self._photos.append(photo)
-            self._photos = self._photos[-4:]
-            label.configure(image=photo, text="")
+            photo = ctk.CTkImage(light_image=img, dark_image=img, size=img.size)
+            self._images.append(photo)
+            self._images = self._images[-4:]
+            view.configure(image=photo, text="")
 
     # ---------- converting ----------
     def convert(self, selected_only):

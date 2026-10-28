@@ -1,100 +1,102 @@
-"""Dark theme with high-contrast text and coloured action buttons."""
+"""Colours, fonts and widget builders for the dark interface."""
 from tkinter import ttk
 
-BG = "#1b1d23"        # window background
-PANEL = "#262a33"     # tabs, headings, raised areas
-FIELD = "#101216"     # text boxes, list rows, log
-TEXT = "#f5f7fa"      # main text (near white)
-MUTED = "#c3c8d3"     # secondary text (still clearly readable)
-BORDER = "#4a5063"
-BTN = "#3b4152"
-BTN_HOVER = "#4c5470"
-ACCENT = "#4d8fe0"    # selection, focus, active tab
-SELECT = "#2c5c99"
-GREEN = "#2e9e5b"     # confirm / primary actions
-GREEN_HOVER = "#3cb96e"
-RED = "#c9453b"       # destructive actions
-RED_HOVER = "#e05b50"
-DISABLED = "#2a2e38"
-DISABLED_TEXT = "#7d8494"
+import customtkinter as ctk
 
-FONT = ("Segoe UI", 10)
+FAMILY = "Segoe UI"
+MONO = "Consolas"
+
+APP_BG = "#0d0d0f"
+SIDEBAR = "#121215"
+CARD = "#1b1b20"
+CARD_BORDER = "#2a2a31"
+FIELD = "#101014"
+TRACK = "#2a2a33"
+NAV_HOVER = "#1f1f25"
+NAV_ACTIVE = "#2b2b34"
+TEXT = "#f5f5f7"
+MUTED = "#a4a4ae"
+GREEN = "#1f9d55"
+GREEN_HOVER = "#27b865"
+SECONDARY = "#2b2b33"
+SECONDARY_HOVER = "#3a3a44"
+RED = "#c0392b"
+RED_HOVER = "#d94b3c"
+SELECT = "#2e4a70"
+HEADING = "#23232a"
 
 
-def apply(root):
-    """Set the dark colours for the whole app. Call once, before creating widgets."""
-    root.configure(background=BG)
-    # Dropdown lists of ttk.Combobox are plain Tk listboxes, so they need their own options.
-    root.option_add("*TCombobox*Listbox.background", FIELD)
-    root.option_add("*TCombobox*Listbox.foreground", TEXT)
-    root.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
-    root.option_add("*TCombobox*Listbox.selectForeground", "#ffffff")
-    root.option_add("*Font", FONT)
+def font(size=13, weight="normal"):
+    return ctk.CTkFont(family=FAMILY, size=size, weight=weight)
 
+
+def setup(root):
+    """Apply the dark theme. Call once, right after creating the main window."""
+    ctk.set_appearance_mode("dark")
+    ctk.set_default_color_theme("blue")
+    root.configure(fg_color=APP_BG)
+
+    # Tables (ttk.Treeview) are not part of CustomTkinter, so they are styled here to match.
     style = ttk.Style(root)
-    style.theme_use("clam")  # the only built-in theme whose colours we can fully change
-    style.configure(".", background=BG, foreground=TEXT, fieldbackground=FIELD, font=FONT)
-    style.configure("TFrame", background=BG)
-    style.configure("TLabel", background=BG, foreground=TEXT)
-    style.configure("Muted.TLabel", background=BG, foreground=MUTED)
-    style.configure("Status.TLabel", background=BG, foreground=TEXT, font=("Segoe UI", 10, "bold"))
-
-    style.configure("TLabelframe", background=BG, bordercolor=BORDER)
-    style.configure("TLabelframe.Label", background=BG, foreground=ACCENT, font=("Segoe UI", 10, "bold"))
-
-    style.configure("TButton", background=BTN, foreground=TEXT, bordercolor=BORDER,
-                    focuscolor=BTN, padding=(12, 6))
-    style.map("TButton",
-              background=[("active", BTN_HOVER), ("disabled", DISABLED)],
-              foreground=[("disabled", DISABLED_TEXT)])
-
-    style.configure("Go.TButton", background=GREEN, foreground="#ffffff", bordercolor=GREEN,
-                    focuscolor=GREEN, padding=(12, 6), font=("Segoe UI", 10, "bold"))
-    style.map("Go.TButton", background=[("active", GREEN_HOVER), ("disabled", DISABLED)])
-
-    style.configure("Danger.TButton", background=RED, foreground="#ffffff", bordercolor=RED,
-                    focuscolor=RED, padding=(12, 6))
-    style.map("Danger.TButton", background=[("active", RED_HOVER), ("disabled", DISABLED)])
-
-    style.configure("TEntry", fieldbackground=FIELD, foreground=TEXT, insertcolor=TEXT,
-                    bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER, padding=4)
-    style.map("TEntry", bordercolor=[("focus", ACCENT)], lightcolor=[("focus", ACCENT)],
-              darkcolor=[("focus", ACCENT)])
-
-    style.configure("TCombobox", fieldbackground=FIELD, foreground=TEXT, background=BTN,
-                    arrowcolor=TEXT, bordercolor=BORDER, insertcolor=TEXT, padding=4)
-    style.map("TCombobox",
-              fieldbackground=[("readonly", FIELD)],
-              foreground=[("readonly", TEXT)],
-              selectbackground=[("readonly", FIELD)],
-              selectforeground=[("readonly", TEXT)],
-              bordercolor=[("focus", ACCENT)])
-
-    style.configure("TCheckbutton", background=BG, foreground=TEXT, indicatorbackground=FIELD,
-                    indicatorforeground=TEXT, focuscolor=BG)
-    style.map("TCheckbutton",
-              background=[("active", BG)],
-              indicatorbackground=[("selected", ACCENT), ("!selected", FIELD)])
-
-    style.configure("TNotebook", background=BG, bordercolor=BORDER, tabmargins=(2, 6, 2, 0))
-    style.configure("TNotebook.Tab", background=PANEL, foreground=MUTED, padding=(14, 7),
-                    bordercolor=BORDER)
-    style.map("TNotebook.Tab",
-              background=[("selected", ACCENT), ("active", BTN_HOVER)],
-              foreground=[("selected", "#ffffff"), ("active", TEXT)])
-
+    style.theme_use("clam")
     style.configure("Treeview", background=FIELD, fieldbackground=FIELD, foreground=TEXT,
-                    bordercolor=BORDER, rowheight=26)
-    style.map("Treeview",
-              background=[("selected", SELECT)],
-              foreground=[("selected", "#ffffff")])
-    style.configure("Treeview.Heading", background=PANEL, foreground=TEXT, bordercolor=BORDER,
-                    font=("Segoe UI", 10, "bold"), padding=(6, 4))
-    style.map("Treeview.Heading", background=[("active", BTN_HOVER)])
+                    bordercolor=CARD_BORDER, lightcolor=CARD_BORDER, darkcolor=CARD_BORDER,
+                    rowheight=32, font=(FAMILY, 11))
+    style.map("Treeview", background=[("selected", SELECT)], foreground=[("selected", "#ffffff")])
+    style.configure("Treeview.Heading", background=HEADING, foreground=MUTED, bordercolor=CARD_BORDER,
+                    relief="flat", font=(FAMILY, 11, "bold"), padding=(8, 6))
+    style.map("Treeview.Heading", background=[("active", SECONDARY_HOVER)])
+    style.configure("Vertical.TScrollbar", background=SECONDARY, troughcolor=FIELD, bordercolor=FIELD,
+                    arrowcolor=MUTED, lightcolor=SECONDARY, darkcolor=SECONDARY)
+    style.map("Vertical.TScrollbar", background=[("active", SECONDARY_HOVER)])
 
-    style.configure("Vertical.TScrollbar", background=BTN, troughcolor=BG, bordercolor=BG,
-                    arrowcolor=TEXT, lightcolor=BTN, darkcolor=BTN)
-    style.map("Vertical.TScrollbar", background=[("active", BTN_HOVER)])
 
-    style.configure("Horizontal.TProgressbar", background=GREEN, troughcolor=FIELD,
-                    bordercolor=BORDER, lightcolor=GREEN, darkcolor=GREEN, thickness=22)
+def card(parent, **kw):
+    """A rounded panel."""
+    opts = {"fg_color": CARD, "corner_radius": 14, "border_width": 1, "border_color": CARD_BORDER}
+    opts.update(kw)
+    return ctk.CTkFrame(parent, **opts)
+
+
+_BUTTON_COLOURS = {
+    "primary": (GREEN, GREEN_HOVER),
+    "secondary": (SECONDARY, SECONDARY_HOVER),
+    "danger": (RED, RED_HOVER),
+}
+
+
+def button(parent, text, command, kind="secondary", icon=None, width=None):
+    fg, hover = _BUTTON_COLOURS[kind]
+    opts = {"text": text, "command": command, "fg_color": fg, "hover_color": hover,
+            "text_color": "#ffffff", "corner_radius": 10, "height": 38, "font": font(13, "bold")}
+    if icon is not None:
+        opts.update(image=icon, compound="left")
+    if width:
+        opts["width"] = width
+    return ctk.CTkButton(parent, **opts)
+
+
+def label(parent, text, size=13, weight="normal", color=TEXT, **kw):
+    return ctk.CTkLabel(parent, text=text, font=font(size, weight), text_color=color, **kw)
+
+
+def muted(parent, text, size=12, **kw):
+    return label(parent, text, size, color=MUTED, **kw)
+
+
+def entry(parent, var=None, width=None, **kw):
+    opts = {"height": 36, "corner_radius": 8, "fg_color": FIELD, "border_color": CARD_BORDER,
+            "text_color": TEXT, "font": font(13)}
+    if var is not None:
+        opts["textvariable"] = var
+    if width:
+        opts["width"] = width
+    opts.update(kw)
+    return ctk.CTkEntry(parent, **opts)
+
+
+def switch(parent, text, var):
+    """On/off switch bound to an IntVar (1 = on, 0 = off)."""
+    return ctk.CTkSwitch(parent, text=text, variable=var, onvalue=1, offvalue=0, font=font(13),
+                         text_color=TEXT, progress_color=GREEN, fg_color=SECONDARY,
+                         button_color="#ffffff", button_hover_color="#e4e4ea", height=24)

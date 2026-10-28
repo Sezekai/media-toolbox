@@ -1,72 +1,57 @@
-"""Media Toolbox: a GUI wrapper around small file utilities."""
+"""Media Toolbox: a sidebar app with one page per tool."""
 import queue
 import threading
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import messagebox
+
+import customtkinter as ctk
 
 import folder_tools
+import icons
 import silent_videos
 import theme
 import webp_convert
 from gif_tab import GifTab
+from theme import button, card, muted
+from widgets import Page, tree_in_card
 
 
-def _browse(var):
-    chosen = filedialog.askdirectory()
-    if chosen:
-        var.set(chosen)
+class SilentPage(Page):
+    title = "Silent videos"
+    subtitle = "Find videos with no audio, select the ones you want, then move them to another folder."
 
-
-def folder_row(parent, row, label, var):
-    """A label, an entry and a Browse button on one grid row."""
-    ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=6, pady=4)
-    ttk.Entry(parent, textvariable=var).grid(row=row, column=1, sticky="ew", padx=6, pady=4)
-    ttk.Button(parent, text="Browse...", command=lambda: _browse(var)).grid(row=row, column=2, padx=6, pady=4)
-
-
-class ToolTab(ttk.Frame):
-    def __init__(self, master, app):
-        super().__init__(master, padding=10)
-        self.app = app
-        self.columnconfigure(1, weight=1)
-
-
-class VideoTab(ToolTab):
-    def __init__(self, master, app):
-        super().__init__(master, app)
+    def build(self):
         self.folder = tk.StringVar()
-        self.recursive = tk.BooleanVar(value=True)
-        self.check_loudness = tk.BooleanVar(value=False)
+        self.recursive = tk.IntVar(value=1)
+        self.loud = tk.IntVar(value=0)
         self.threshold = tk.StringVar(value="-60")
+        self.body.grid_rowconfigure(2, weight=1)
 
-        folder_row(self, 0, "Video folder:", self.folder)
+        setup = card(self.body)
+        setup.grid(row=0, column=0, sticky="ew")
+        setup.grid_columnconfigure(1, weight=1)
+        self.folder_row(setup, 0, "Video folder", self.folder, "Choose the video folder")
+        opts = ctk.CTkFrame(setup, fg_color="transparent")
+        opts.grid(row=1, column=0, columnspan=3, sticky="w", padx=18, pady=(0, 16))
+        theme.switch(opts, "Include subfolders", self.recursive).pack(side="left", padx=(0, 26))
+        theme.switch(opts, "Also check audio level (slower)", self.loud).pack(side="left", padx=(0, 26))
+        muted(opts, "Threshold (dB)").pack(side="left", padx=(0, 8))
+        theme.entry(opts, self.threshold, width=84).pack(side="left")
 
-        opts = ttk.Frame(self)
-        opts.grid(row=1, column=0, columnspan=3, sticky="w", padx=6, pady=4)
-        ttk.Checkbutton(opts, text="Include subfolders", variable=self.recursive).pack(side="left", padx=(0, 12))
-        ttk.Checkbutton(opts, text="Also detect silent audio (slower)",
-                        variable=self.check_loudness).pack(side="left")
-        ttk.Label(opts, text="Silence threshold (dB):").pack(side="left", padx=(12, 4))
-        ttk.Entry(opts, textvariable=self.threshold, width=6).pack(side="left")
+        actions = ctk.CTkFrame(self.body, fg_color="transparent")
+        actions.grid(row=1, column=0, sticky="ew", pady=12)
+        button(actions, "Scan", self.scan, "primary", icon=icons.icon("search", "#ffffff", 18)).pack(side="left")
+        button(actions, "Select all", self.select_all).pack(side="left", padx=8)
+        button(actions, "Move selected", self.move_selected, "primary",
+               icon=icons.icon("move", "#ffffff", 18)).pack(side="left")
+        self.summary = muted(actions, "", size=13)
+        self.summary.pack(side="left", padx=16)
 
-        buttons = ttk.Frame(self)
-        buttons.grid(row=2, column=0, columnspan=3, sticky="w", padx=6, pady=6)
-        ttk.Button(buttons, text="Scan", style="Go.TButton", command=self.scan).pack(side="left")
-        ttk.Button(buttons, text="Select all", command=self.select_all).pack(side="left", padx=8)
-        ttk.Button(buttons, text="Move selected to folder...", style="Go.TButton",
-                   command=self.move_selected).pack(side="left")
-        self.summary = ttk.Label(buttons, text="", style="Status.TLabel")
-        self.summary.pack(side="left", padx=10)
-
-        self.tree = ttk.Treeview(self, columns=("path", "reason"), show="headings", selectmode="extended")
-        self.tree.heading("path", text="File")
-        self.tree.heading("reason", text="Reason")
-        self.tree.column("path", width=520)
-        self.tree.column("reason", width=240)
-        self.tree.grid(row=3, column=0, columnspan=3, sticky="nsew", padx=6, pady=4)
-        self.rowconfigure(3, weight=1)
+        list_card = card(self.body)
+        list_card.grid(row=2, column=0, sticky="nsew")
+        self.tree = tree_in_card(list_card, ("path", "reason"), ("File", "Reason"), (560, 260))
 
     def scan(self):
         folder = self.folder.get().strip()
@@ -78,19 +63,18 @@ class VideoTab(ToolTab):
         except ValueError:
             messagebox.showerror("Invalid threshold", "Enter a number such as -60.")
             return
-        self.app.run_background(self._scan_worker, folder, self.recursive.get(),
-                                self.check_loudness.get(), threshold)
+        self.app.run_background(self._scan_worker, folder, bool(self.recursive.get()),
+                               bool(self.loud.get()), threshold)
 
-    def _scan_worker(self, folder, recursive, check_loudness, threshold, log, progress):
-        silent = silent_videos.scan_folder(folder, recursive, check_loudness, threshold,
-                                           log=log, progress=progress)
+    def _scan_worker(self, folder, recursive, loud, threshold, log, progress):
+        silent = silent_videos.scan_folder(folder, recursive, loud, threshold, log=log, progress=progress)
         self.app.on_main(lambda: self._show_results(silent))
 
     def _show_results(self, silent):
         self.tree.delete(*self.tree.get_children())
         for path, reason in silent:
             self.tree.insert("", "end", iid=str(path), values=(str(path), reason))
-        self.summary.config(text=f"{len(silent)} silent video(s). Select the ones to move.")
+        self.summary.configure(text=f"{len(silent)} silent video(s). Select the ones to move.")
 
     def select_all(self):
         self.tree.selection_set(self.tree.get_children())
@@ -98,10 +82,9 @@ class VideoTab(ToolTab):
     def move_selected(self):
         iids = self.tree.selection()
         if not iids:
-            messagebox.showinfo("Nothing selected",
-                                "Select one or more videos in the list first (or click Select all).")
+            messagebox.showinfo("Nothing selected", "Select one or more videos in the list first (or click Select all).")
             return
-        dest = filedialog.askdirectory(title="Move selected videos to...")
+        dest = _ask_dir("Move selected videos to...")
         if not dest:
             return
         self.app.run_background(self._move_worker, [Path(i) for i in iids], dest)
@@ -115,21 +98,27 @@ class VideoTab(ToolTab):
         for iid in iids:
             if self.tree.exists(iid):
                 self.tree.delete(iid)
-        self.summary.config(text=f"{len(self.tree.get_children())} silent video(s) remaining")
+        self.summary.configure(text=f"{len(self.tree.get_children())} silent video(s) remaining")
 
 
-class ZipTab(ToolTab):
-    def __init__(self, master, app):
-        super().__init__(master, app)
+class ZipPage(Page):
+    title = "Zip subfolders"
+    subtitle = "Each subfolder becomes its own zip file, named after the folder."
+
+    def build(self):
         self.source = tk.StringVar()
         self.dest = tk.StringVar()
-        folder_row(self, 0, "Parent folder:", self.source)
-        folder_row(self, 1, "Save zips to (optional):", self.dest)
-        ttk.Label(self, text="Each subfolder of the parent becomes FolderName.zip. "
-                             "Leave the destination empty to save the zips beside the folders.",
-                  style="Muted.TLabel").grid(row=2, column=0, columnspan=3, sticky="w", padx=6)
-        ttk.Button(self, text="Zip subfolders", style="Go.TButton", command=self.run).grid(
-            row=3, column=0, sticky="w", padx=6, pady=8)
+        setup = card(self.body)
+        setup.grid(row=0, column=0, sticky="ew")
+        setup.grid_columnconfigure(1, weight=1)
+        self.folder_row(setup, 0, "Parent folder", self.source, "Choose the parent folder")
+        self.folder_row(setup, 1, "Save zips to", self.dest, "Choose where to save the zips")
+        muted(setup, "Leave the destination empty to save the zips beside the folders.").grid(
+            row=2, column=1, sticky="w", padx=6, pady=(0, 16))
+
+        actions = ctk.CTkFrame(self.body, fg_color="transparent")
+        actions.grid(row=1, column=0, sticky="w", pady=12)
+        button(actions, "Zip subfolders", self.run, "primary", icon=icons.icon("zip", "#ffffff", 18)).pack(side="left")
 
     def run(self):
         src = self.source.get().strip()
@@ -140,50 +129,59 @@ class ZipTab(ToolTab):
         self.app.run_background(folder_tools.zip_subfolders, src, dst)
 
 
-class WebpTab(ToolTab):
-    def __init__(self, master, app):
-        super().__init__(master, app)
+class WebpPage(Page):
+    title = "WebP to JPG"
+    subtitle = "Convert .webp images to .jpg. Each JPG is saved in the same folder as its original."
+
+    def build(self):
         self.folder = tk.StringVar()
-        self.recursive = tk.BooleanVar(value=False)
-        self.delete_originals = tk.BooleanVar(value=False)
-        folder_row(self, 0, "Folder:", self.folder)
+        self.recursive = tk.IntVar(value=0)
+        self.delete_originals = tk.IntVar(value=0)
+        setup = card(self.body)
+        setup.grid(row=0, column=0, sticky="ew")
+        setup.grid_columnconfigure(1, weight=1)
+        self.folder_row(setup, 0, "Folder", self.folder, "Choose the folder")
+        opts = ctk.CTkFrame(setup, fg_color="transparent")
+        opts.grid(row=1, column=0, columnspan=3, sticky="w", padx=18, pady=(0, 16))
+        theme.switch(opts, "Include subfolders", self.recursive).pack(side="left", padx=(0, 26))
+        theme.switch(opts, "Send original .webp files to the Recycle Bin after converting",
+                     self.delete_originals).pack(side="left")
 
-        opts = ttk.Frame(self)
-        opts.grid(row=1, column=0, columnspan=3, sticky="w", padx=6, pady=4)
-        ttk.Checkbutton(opts, text="Include subfolders",
-                        variable=self.recursive).pack(side="left", padx=(0, 12))
-        ttk.Checkbutton(opts, text="Send original .webp files to Recycle Bin after converting",
-                        variable=self.delete_originals).pack(side="left")
-
-        ttk.Label(self, text="Converted .jpg files are saved in the same directory as each original.",
-                  style="Muted.TLabel").grid(row=2, column=0, columnspan=3, sticky="w", padx=6)
-        ttk.Button(self, text="Convert to JPG", style="Go.TButton", command=self.run).grid(
-            row=3, column=0, sticky="w", padx=6, pady=8)
+        actions = ctk.CTkFrame(self.body, fg_color="transparent")
+        actions.grid(row=1, column=0, sticky="w", pady=12)
+        button(actions, "Convert to JPG", self.run, "primary", icon=icons.icon("image", "#ffffff", 18)).pack(side="left")
 
     def run(self):
         folder = self.folder.get().strip()
         if not Path(folder).is_dir():
             messagebox.showerror("Folder not found", "Choose a valid folder.")
             return
-        delete = self.delete_originals.get()
+        delete = bool(self.delete_originals.get())
         if delete and not messagebox.askyesno(
-                "Confirm",
-                "Original .webp files will be sent to the Recycle Bin after converting. Continue?"):
+                "Confirm", "Original .webp files will be sent to the Recycle Bin after converting. Continue?"):
             return
-        self.app.run_background(webp_convert.convert_webp_to_jpg, folder, self.recursive.get(), delete)
+        self.app.run_background(webp_convert.convert_webp_to_jpg, folder, bool(self.recursive.get()), delete)
 
 
-class CopyTab(ToolTab):
-    def __init__(self, master, app):
-        super().__init__(master, app)
+class CopyPage(Page):
+    title = "Copy folder structure"
+    subtitle = "Recreate a folder's sub-folders in another location, without copying any files."
+
+    def build(self):
         self.source = tk.StringVar()
         self.dest = tk.StringVar()
-        folder_row(self, 0, "Folder to copy:", self.source)
-        folder_row(self, 1, "Copy into:", self.dest)
-        ttk.Label(self, text="Recreates the folder tree (no files) inside the destination.",
-                  style="Muted.TLabel").grid(row=2, column=0, columnspan=3, sticky="w", padx=6)
-        ttk.Button(self, text="Copy folder structure", style="Go.TButton", command=self.run).grid(
-            row=3, column=0, sticky="w", padx=6, pady=8)
+        setup = card(self.body)
+        setup.grid(row=0, column=0, sticky="ew")
+        setup.grid_columnconfigure(1, weight=1)
+        self.folder_row(setup, 0, "Folder to copy", self.source, "Choose the folder to copy")
+        self.folder_row(setup, 1, "Copy into", self.dest, "Choose the destination")
+        muted(setup, "Creates a copy of the folder tree (no files) inside the destination.").grid(
+            row=2, column=1, sticky="w", padx=6, pady=(0, 16))
+
+        actions = ctk.CTkFrame(self.body, fg_color="transparent")
+        actions.grid(row=1, column=0, sticky="w", pady=12)
+        button(actions, "Copy folder structure", self.run, "primary",
+               icon=icons.icon("copy_folder", "#ffffff", 18)).pack(side="left")
 
     def run(self):
         src = self.source.get().strip()
@@ -194,52 +192,115 @@ class CopyTab(ToolTab):
         self.app.run_background(folder_tools.copy_folder_structure, src, dst)
 
 
-class App(tk.Tk):
+def _ask_dir(title):
+    from tkinter import filedialog
+    return filedialog.askdirectory(title=title)
+
+
+# Sidebar entries: key, label, icon name
+NAV = [
+    ("silent", "Silent videos", "silent"),
+    ("gif", "GIF maker", "gif"),
+    ("zip", "Zip subfolders", "zip"),
+    ("webp", "WebP to JPG", "image"),
+    ("copy", "Copy folder structure", "copy_folder"),
+]
+PAGES = {
+    "silent": SilentPage,
+    "gif": GifTab,
+    "zip": ZipPage,
+    "webp": WebpPage,
+    "copy": CopyPage,
+}
+
+
+class App(ctk.CTk):
     def __init__(self):
         super().__init__()
-        theme.apply(self)
+        theme.setup(self)
         self.title("Media Toolbox")
-        self.geometry("1000x760")
-        self.minsize(820, 600)
+        self.geometry("1180x900")
+        self.minsize(1000, 760)
         self.ui_queue = queue.Queue()
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+        self.nav = {}
 
-        notebook = ttk.Notebook(self)
+        self._build_sidebar()
+        self._build_main()
+        self.show("silent")
+        self.after(80, self._drain)
 
-        # Bottom area first, so it keeps its height when the window is resized.
-        log_frame = ttk.LabelFrame(self, text="Log")
-        log_frame.pack(side="bottom", fill="both", padx=8, pady=(0, 8))
-        log_bar = ttk.Frame(log_frame)
-        log_bar.pack(fill="x", padx=4, pady=(4, 0))
-        ttk.Button(log_bar, text="Clear log", command=self._clear_log).pack(side="right")
-        log_body = ttk.Frame(log_frame)
-        log_body.pack(fill="both", expand=True, padx=4, pady=4)
-        self.log_text = tk.Text(log_body, height=9, state="disabled", wrap="word", relief="flat",
-                                background=theme.FIELD, foreground=theme.TEXT,
-                                insertbackground=theme.TEXT, selectbackground=theme.SELECT,
-                                font=("Consolas", 10), padx=8, pady=6)
-        log_scroll = ttk.Scrollbar(log_body, orient="vertical", command=self.log_text.yview)
-        self.log_text.configure(yscrollcommand=log_scroll.set)
-        self.log_text.pack(side="left", fill="both", expand=True)
-        log_scroll.pack(side="right", fill="y")
+    # ---------- layout ----------
+    def _build_sidebar(self):
+        side = ctk.CTkFrame(self, width=236, corner_radius=0, fg_color=theme.SIDEBAR)
+        side.grid(row=0, column=0, sticky="nsew")
 
-        progress_frame = ttk.Frame(self, padding=(10, 6, 10, 2))
-        progress_frame.pack(side="bottom", fill="x")
-        self.status = ttk.Label(progress_frame, text="Ready", style="Status.TLabel", width=46, anchor="w")
+        brand = ctk.CTkFrame(side, fg_color="transparent")
+        brand.pack(fill="x", padx=18, pady=(22, 20))
+        ctk.CTkLabel(brand, text="", image=icons.icon("logo", theme.GREEN, 30)).pack(side="left")
+        names = ctk.CTkFrame(brand, fg_color="transparent")
+        names.pack(side="left", padx=12)
+        theme.label(names, "Media Toolbox", size=15, weight="bold").pack(anchor="w")
+        muted(names, "Everyday file tools", size=11).pack(anchor="w")
+
+        theme.label(side, "TOOLS", size=11, weight="bold", color=theme.MUTED).pack(anchor="w", padx=24, pady=(4, 8))
+        for key, text, icon_name in NAV:
+            btn = ctk.CTkButton(side, text=f"  {text}", anchor="w", height=42, corner_radius=10,
+                                fg_color="transparent", hover_color=theme.NAV_HOVER,
+                                text_color=theme.MUTED, font=theme.font(14, "bold"),
+                                image=icons.icon(icon_name, theme.MUTED, 20), compound="left",
+                                command=lambda k=key: self.show(k))
+            btn.pack(fill="x", padx=12, pady=3)
+            self.nav[key] = (btn, icon_name)
+
+    def _build_main(self):
+        main = ctk.CTkFrame(self, fg_color=theme.APP_BG, corner_radius=0)
+        main.grid(row=0, column=1, sticky="nsew")
+        main.grid_columnconfigure(0, weight=1)
+        main.grid_rowconfigure(0, weight=1)
+
+        host = ctk.CTkFrame(main, fg_color="transparent")
+        host.grid(row=0, column=0, sticky="nsew", padx=24, pady=(20, 10))
+        host.grid_columnconfigure(0, weight=1)
+        host.grid_rowconfigure(0, weight=1)
+        self.pages = {}
+        for key, cls in PAGES.items():
+            page = cls(host, self)
+            page.grid(row=0, column=0, sticky="nsew")
+            self.pages[key] = page
+
+        self._build_activity(main)
+
+    def _build_activity(self, main):
+        panel = card(main)
+        panel.grid(row=1, column=0, sticky="ew", padx=24, pady=(0, 20))
+
+        top = ctk.CTkFrame(panel, fg_color="transparent")
+        top.pack(fill="x", padx=18, pady=(14, 8))
+        self.status = theme.label(top, "Ready", size=13, weight="bold", width=300, anchor="w")
         self.status.pack(side="left")
-        self.bar = ttk.Progressbar(progress_frame, maximum=100, mode="determinate",
-                                   style="Horizontal.TProgressbar")
-        self.bar.pack(side="left", fill="x", expand=True, padx=(8, 0))
+        button(top, "Clear log", self._clear_log, width=110).pack(side="right")
+        self.bar = ctk.CTkProgressBar(top, height=12, corner_radius=6, progress_color=theme.GREEN,
+                                      fg_color=theme.TRACK)
+        self.bar.set(0)
+        self.bar.pack(side="left", fill="x", expand=True, padx=16)
 
-        notebook.pack(fill="both", expand=True, padx=8, pady=(8, 4))
-        notebook.add(VideoTab(notebook, self), text="Silent videos")
-        notebook.add(GifTab(notebook, self), text="GIF maker")
-        notebook.add(ZipTab(notebook, self), text="Zip subfolders")
-        notebook.add(WebpTab(notebook, self), text="WebP to JPG")
-        notebook.add(CopyTab(notebook, self), text="Copy folder structure")
+        self.log_box = ctk.CTkTextbox(panel, height=150, corner_radius=10, fg_color=theme.FIELD,
+                                      text_color="#dcdce2", font=(theme.MONO, 12), wrap="word")
+        self.log_box.pack(fill="x", padx=18, pady=(0, 16))
+        self.log_box.configure(state="disabled")
 
-        self.after(100, self._drain)
+    def show(self, key):
+        self.pages[key].tkraise()
+        for k, (btn, icon_name) in self.nav.items():
+            active = k == key
+            btn.configure(fg_color=theme.NAV_ACTIVE if active else "transparent",
+                          text_color=theme.TEXT if active else theme.MUTED,
+                          image=icons.icon(icon_name, theme.TEXT if active else theme.MUTED, 20))
 
-    # Background threads never touch Tk directly; they queue callables for the UI thread.
+    # ---------- thread-safe updates ----------
+    # Background threads never touch the UI directly; they queue callables for the UI thread.
     def log(self, msg):
         stamp = datetime.now().strftime("%H:%M:%S")
         self.ui_queue.put(lambda: self._append_log(f"{stamp}  {msg}"))
@@ -254,22 +315,22 @@ class App(tk.Tk):
     def _set_progress(self, done, total, text):
         if total:
             pct = done * 100 / total
-            self.bar["value"] = pct
-            self.status.config(text=f"{text}: {done} of {total} ({pct:.0f}%)")
+            self.bar.set(done / total)
+            self.status.configure(text=f"{text}: {done} of {total}  ({pct:.0f}%)")
         else:
-            self.bar["value"] = 0
-            self.status.config(text=text)
+            self.bar.set(0)
+            self.status.configure(text=text)
 
     def _append_log(self, line):
-        self.log_text.configure(state="normal")
-        self.log_text.insert("end", line + "\n")
-        self.log_text.see("end")
-        self.log_text.configure(state="disabled")
+        self.log_box.configure(state="normal")
+        self.log_box.insert("end", line + "\n")
+        self.log_box.see("end")
+        self.log_box.configure(state="disabled")
 
     def _clear_log(self):
-        self.log_text.configure(state="normal")
-        self.log_text.delete("1.0", "end")
-        self.log_text.configure(state="disabled")
+        self.log_box.configure(state="normal")
+        self.log_box.delete("1.0", "end")
+        self.log_box.configure(state="disabled")
 
     def _drain(self):
         try:
@@ -277,7 +338,7 @@ class App(tk.Tk):
                 self.ui_queue.get_nowait()()
         except queue.Empty:
             pass
-        self.after(100, self._drain)
+        self.after(80, self._drain)
 
     def run_background(self, fn, *args, **kwargs):
         """Run fn in a thread. fn receives log= and progress= callbacks automatically."""

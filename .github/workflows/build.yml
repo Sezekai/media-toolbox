@@ -36,7 +36,7 @@ jobs:
 
       - name: Build EXE
         run: >
-          pyinstaller --noconsole --onefile --name MediaToolbox
+          pyinstaller --noconsole --onefile --name MediaToolbox --collect-all customtkinter
           --add-binary "ffmpeg.exe;."
           --add-binary "ffprobe.exe;."
           main.py
