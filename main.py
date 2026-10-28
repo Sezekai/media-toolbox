@@ -356,4 +356,5 @@ class App(ctk.CTk):
 
 
 if __name__ == "__main__":
+    theme.load_fonts()
     App().mainloop()

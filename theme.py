@@ -1,9 +1,13 @@
 """Colours, fonts and widget builders for the dark interface."""
+import ctypes
+import os
+import sys
 from tkinter import ttk
 
 import customtkinter as ctk
 
-FAMILY = "Segoe UI"
+FAMILY = "Inter"            # falls back to Segoe UI if Inter can't be loaded
+FALLBACK_FAMILY = "Segoe UI"
 MONO = "Consolas"
 
 APP_BG = "#0d0d0f"
@@ -26,6 +30,32 @@ SELECT = "#2e4a70"
 HEADING = "#23232a"
 
 
+def _bundle_path(*parts):
+    """Path to a bundled file, both when running from source and inside the PyInstaller .exe."""
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, *parts)
+
+
+def load_fonts():
+    """Make the bundled Inter font usable by this app on Windows, without installing it.
+    Call once, before the main window is created."""
+    if sys.platform != "win32":
+        return
+    FR_PRIVATE = 0x10  # visible only to this process
+    for name in ("Inter-Regular.ttf", "Inter-Bold.ttf"):
+        path = _bundle_path("fonts", name)
+        if os.path.exists(path):
+            ctypes.windll.gdi32.AddFontResourceExW(path, FR_PRIVATE, 0)
+
+
+def choose_family(root):
+    """Use Inter if Tk can see it, otherwise fall back to Segoe UI."""
+    global FAMILY
+    import tkinter.font as tkfont
+    if "Inter" not in tkfont.families(root):
+        FAMILY = FALLBACK_FAMILY
+
+
 def font(size=13, weight="normal"):
     return ctk.CTkFont(family=FAMILY, size=size, weight=weight)
 
@@ -35,6 +65,7 @@ def setup(root):
     ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("blue")
     root.configure(fg_color=APP_BG)
+    choose_family(root)
 
     # Tables (ttk.Treeview) are not part of CustomTkinter, so they are styled here to match.
     style = ttk.Style(root)
