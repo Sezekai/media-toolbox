@@ -8,6 +8,7 @@ from tkinter import filedialog, messagebox, ttk
 import folder_tools
 import silent_videos
 import webp_convert
+from gif_tab import GifTab
 
 
 def _browse(var):
@@ -37,7 +38,6 @@ class VideoTab(ToolTab):
         self.recursive = tk.BooleanVar(value=True)
         self.check_loudness = tk.BooleanVar(value=False)
         self.threshold = tk.StringVar(value="-60")
-        self.results = []  # Path objects currently listed
 
         folder_row(self, 0, "Video folder:", self.folder)
 
@@ -52,12 +52,13 @@ class VideoTab(ToolTab):
         buttons = ttk.Frame(self)
         buttons.grid(row=2, column=0, columnspan=3, sticky="w", padx=6, pady=6)
         ttk.Button(buttons, text="Scan", command=self.scan).pack(side="left")
-        ttk.Button(buttons, text="Move all listed to folder...",
-                   command=self.move_listed).pack(side="left", padx=8)
+        ttk.Button(buttons, text="Select all", command=self.select_all).pack(side="left", padx=8)
+        ttk.Button(buttons, text="Move selected to folder...",
+                   command=self.move_selected).pack(side="left")
         self.summary = ttk.Label(buttons, text="")
         self.summary.pack(side="left", padx=8)
 
-        self.tree = ttk.Treeview(self, columns=("path", "reason"), show="headings")
+        self.tree = ttk.Treeview(self, columns=("path", "reason"), show="headings", selectmode="extended")
         self.tree.heading("path", text="File")
         self.tree.heading("reason", text="Reason")
         self.tree.column("path", width=520)
@@ -83,32 +84,35 @@ class VideoTab(ToolTab):
         self.app.on_main(lambda: self._show_results(silent))
 
     def _show_results(self, silent):
-        self.results = [path for path, _ in silent]
         self.tree.delete(*self.tree.get_children())
         for path, reason in silent:
             self.tree.insert("", "end", iid=str(path), values=(str(path), reason))
-        self.summary.config(text=f"{len(silent)} silent video(s)")
+        self.summary.config(text=f"{len(silent)} silent video(s). Select the ones to move.")
 
-    def move_listed(self):
-        if not self.results:
-            messagebox.showinfo("Nothing to move", "Scan first, or no silent videos were found.")
+    def select_all(self):
+        self.tree.selection_set(self.tree.get_children())
+
+    def move_selected(self):
+        iids = self.tree.selection()
+        if not iids:
+            messagebox.showinfo("Nothing selected",
+                                "Select one or more videos in the list first (or click Select all).")
             return
-        dest = filedialog.askdirectory(title="Move silent videos to...")
+        dest = filedialog.askdirectory(title="Move selected videos to...")
         if not dest:
             return
-        self.app.run_background(self._move_worker, list(self.results), dest)
+        self.app.run_background(self._move_worker, [Path(i) for i in iids], dest)
 
     def _move_worker(self, paths, dest):
         moved = silent_videos.move_files(paths, dest, log=self.app.log)
-        moved_ids = {str(p) for p in moved}
-        self.app.on_main(lambda: self._remove_from_list(moved_ids))
+        moved_ids = [str(p) for p in moved]
+        self.app.on_main(lambda: self._remove_rows(moved_ids))
 
-    def _remove_from_list(self, moved_ids):
-        self.results = [p for p in self.results if str(p) not in moved_ids]
-        for iid in moved_ids:
+    def _remove_rows(self, iids):
+        for iid in iids:
             if self.tree.exists(iid):
                 self.tree.delete(iid)
-        self.summary.config(text=f"{len(self.results)} silent video(s)")
+        self.summary.config(text=f"{len(self.tree.get_children())} silent video(s) remaining")
 
 
 class ZipTab(ToolTab):
@@ -192,20 +196,21 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Media Toolbox")
-        self.geometry("900x640")
-        self.minsize(760, 520)
+        self.geometry("1000x720")
+        self.minsize(820, 560)
         self.ui_queue = queue.Queue()
 
         notebook = ttk.Notebook(self)
         notebook.pack(fill="both", expand=True, padx=8, pady=(8, 4))
         notebook.add(VideoTab(notebook, self), text="Silent videos")
+        notebook.add(GifTab(notebook, self), text="GIF maker")
         notebook.add(ZipTab(notebook, self), text="Zip subfolders")
         notebook.add(WebpTab(notebook, self), text="WebP to JPG")
         notebook.add(CopyTab(notebook, self), text="Copy folder structure")
 
         log_frame = ttk.LabelFrame(self, text="Log")
         log_frame.pack(fill="both", padx=8, pady=(0, 8))
-        self.log_text = tk.Text(log_frame, height=10, state="disabled", wrap="word")
+        self.log_text = tk.Text(log_frame, height=8, state="disabled", wrap="word")
         self.log_text.pack(fill="both", expand=True, padx=4, pady=4)
 
         self.after(100, self._drain)
