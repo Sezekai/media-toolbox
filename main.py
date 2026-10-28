@@ -4,7 +4,7 @@ import threading
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
@@ -38,7 +38,7 @@ class SilentPage(Page):
         theme.switch(opts, "Include subfolders", self.recursive).pack(side="left", padx=(0, 26))
         theme.switch(opts, "Also check audio level (slower)", self.loud).pack(side="left", padx=(0, 26))
         muted(opts, "Threshold (dB)").pack(side="left", padx=(0, 8))
-        theme.entry(opts, self.threshold, width=84).pack(side="left")
+        theme.entry(opts, self.threshold, width=90).pack(side="left")
 
         actions = ctk.CTkFrame(self.body, fg_color="transparent")
         actions.grid(row=1, column=0, sticky="ew", pady=12)
@@ -46,12 +46,12 @@ class SilentPage(Page):
         button(actions, "Select all", self.select_all).pack(side="left", padx=8)
         button(actions, "Move selected", self.move_selected, "primary",
                icon=icons.icon("move", "#ffffff", 18)).pack(side="left")
-        self.summary = muted(actions, "", size=13)
+        self.summary = muted(actions, "", size=14)
         self.summary.pack(side="left", padx=16)
 
         list_card = card(self.body)
-        list_card.grid(row=2, column=0, sticky="nsew")
-        self.tree = tree_in_card(list_card, ("path", "reason"), ("File", "Reason"), (560, 260))
+        list_card.grid(row=2, column=0, sticky="nsew", pady=(0, 8))
+        self.tree = tree_in_card(list_card, ("path", "reason"), ("File", "Reason"), (640, 300))
 
     def scan(self):
         folder = self.folder.get().strip()
@@ -84,7 +84,7 @@ class SilentPage(Page):
         if not iids:
             messagebox.showinfo("Nothing selected", "Select one or more videos in the list first (or click Select all).")
             return
-        dest = _ask_dir("Move selected videos to...")
+        dest = filedialog.askdirectory(title="Move selected videos to...")
         if not dest:
             return
         self.app.run_background(self._move_worker, [Path(i) for i in iids], dest)
@@ -192,11 +192,6 @@ class CopyPage(Page):
         self.app.run_background(folder_tools.copy_folder_structure, src, dst)
 
 
-def _ask_dir(title):
-    from tkinter import filedialog
-    return filedialog.askdirectory(title=title)
-
-
 # Sidebar entries: key, label, icon name
 NAV = [
     ("silent", "Silent videos", "silent"),
@@ -219,8 +214,8 @@ class App(ctk.CTk):
         super().__init__()
         theme.setup(self)
         self.title("Media Toolbox")
-        self.geometry("1180x900")
-        self.minsize(1000, 760)
+        self.geometry("1280x880")
+        self.minsize(1000, 680)
         self.ui_queue = queue.Queue()
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -233,32 +228,33 @@ class App(ctk.CTk):
 
     # ---------- layout ----------
     def _build_sidebar(self):
-        side = ctk.CTkFrame(self, width=236, corner_radius=0, fg_color=theme.SIDEBAR)
+        side = ctk.CTkFrame(self, width=260, corner_radius=0, fg_color=theme.SIDEBAR)
         side.grid(row=0, column=0, sticky="nsew")
 
         brand = ctk.CTkFrame(side, fg_color="transparent")
-        brand.pack(fill="x", padx=18, pady=(22, 20))
-        ctk.CTkLabel(brand, text="", image=icons.icon("logo", theme.GREEN, 30)).pack(side="left")
+        brand.pack(fill="x", padx=20, pady=(24, 22))
+        ctk.CTkLabel(brand, text="", image=icons.icon("logo", theme.GREEN, 34)).pack(side="left")
         names = ctk.CTkFrame(brand, fg_color="transparent")
         names.pack(side="left", padx=12)
-        theme.label(names, "Media Toolbox", size=15, weight="bold").pack(anchor="w")
-        muted(names, "Everyday file tools", size=11).pack(anchor="w")
+        theme.label(names, "Media Toolbox", size=17, weight="bold").pack(anchor="w")
+        muted(names, "Everyday file tools", size=12).pack(anchor="w")
 
-        theme.label(side, "TOOLS", size=11, weight="bold", color=theme.MUTED).pack(anchor="w", padx=24, pady=(4, 8))
+        theme.label(side, "TOOLS", size=12, weight="bold", color=theme.MUTED).pack(anchor="w", padx=26, pady=(4, 8))
         for key, text, icon_name in NAV:
-            btn = ctk.CTkButton(side, text=f"  {text}", anchor="w", height=42, corner_radius=10,
+            btn = ctk.CTkButton(side, text=f"  {text}", anchor="w", height=48, corner_radius=10,
                                 fg_color="transparent", hover_color=theme.NAV_HOVER,
-                                text_color=theme.MUTED, font=theme.font(14, "bold"),
-                                image=icons.icon(icon_name, theme.MUTED, 20), compound="left",
+                                text_color=theme.MUTED, font=theme.font(15, "bold"),
+                                image=icons.icon(icon_name, theme.MUTED, 22), compound="left",
                                 command=lambda k=key: self.show(k))
-            btn.pack(fill="x", padx=12, pady=3)
+            btn.pack(fill="x", padx=14, pady=3)
             self.nav[key] = (btn, icon_name)
 
     def _build_main(self):
         main = ctk.CTkFrame(self, fg_color=theme.APP_BG, corner_radius=0)
         main.grid(row=0, column=1, sticky="nsew")
         main.grid_columnconfigure(0, weight=1)
-        main.grid_rowconfigure(0, weight=1)
+        main.grid_rowconfigure(0, weight=3)   # the pages get most of the height
+        main.grid_rowconfigure(1, weight=1)   # the activity panel grows too
 
         host = ctk.CTkFrame(main, fg_color="transparent")
         host.grid(row=0, column=0, sticky="nsew", padx=24, pady=(20, 10))
@@ -274,21 +270,21 @@ class App(ctk.CTk):
 
     def _build_activity(self, main):
         panel = card(main)
-        panel.grid(row=1, column=0, sticky="ew", padx=24, pady=(0, 20))
+        panel.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 20))
 
         top = ctk.CTkFrame(panel, fg_color="transparent")
         top.pack(fill="x", padx=18, pady=(14, 8))
-        self.status = theme.label(top, "Ready", size=13, weight="bold", width=300, anchor="w")
+        self.status = theme.label(top, "Ready", size=14, weight="bold", width=320, anchor="w")
         self.status.pack(side="left")
-        button(top, "Clear log", self._clear_log, width=110).pack(side="right")
-        self.bar = ctk.CTkProgressBar(top, height=12, corner_radius=6, progress_color=theme.GREEN,
+        button(top, "Clear log", self._clear_log, width=120).pack(side="right")
+        self.bar = ctk.CTkProgressBar(top, height=14, corner_radius=7, progress_color=theme.GREEN,
                                       fg_color=theme.TRACK)
         self.bar.set(0)
         self.bar.pack(side="left", fill="x", expand=True, padx=16)
 
-        self.log_box = ctk.CTkTextbox(panel, height=150, corner_radius=10, fg_color=theme.FIELD,
-                                      text_color="#dcdce2", font=(theme.MONO, 12), wrap="word")
-        self.log_box.pack(fill="x", padx=18, pady=(0, 16))
+        self.log_box = ctk.CTkTextbox(panel, height=110, corner_radius=10, fg_color=theme.FIELD,
+                                      text_color="#dcdce2", font=(theme.MONO, 13), wrap="word")
+        self.log_box.pack(fill="both", expand=True, padx=18, pady=(0, 16))
         self.log_box.configure(state="disabled")
 
     def show(self, key):
@@ -297,7 +293,7 @@ class App(ctk.CTk):
             active = k == key
             btn.configure(fg_color=theme.NAV_ACTIVE if active else "transparent",
                           text_color=theme.TEXT if active else theme.MUTED,
-                          image=icons.icon(icon_name, theme.TEXT if active else theme.MUTED, 20))
+                          image=icons.icon(icon_name, theme.TEXT if active else theme.MUTED, 22))
 
     # ---------- thread-safe updates ----------
     # Background threads never touch the UI directly; they queue callables for the UI thread.

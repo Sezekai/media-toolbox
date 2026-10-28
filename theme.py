@@ -56,7 +56,7 @@ def choose_family(root):
         FAMILY = FALLBACK_FAMILY
 
 
-def font(size=13, weight="normal"):
+def font(size=14, weight="normal"):
     return ctk.CTkFont(family=FAMILY, size=size, weight=weight)
 
 
@@ -72,14 +72,15 @@ def setup(root):
     style.theme_use("clam")
     style.configure("Treeview", background=FIELD, fieldbackground=FIELD, foreground=TEXT,
                     bordercolor=CARD_BORDER, lightcolor=CARD_BORDER, darkcolor=CARD_BORDER,
-                    rowheight=32, font=(FAMILY, 11))
+                    rowheight=36, font=(FAMILY, 12))
     style.map("Treeview", background=[("selected", SELECT)], foreground=[("selected", "#ffffff")])
     style.configure("Treeview.Heading", background=HEADING, foreground=MUTED, bordercolor=CARD_BORDER,
-                    relief="flat", font=(FAMILY, 11, "bold"), padding=(8, 6))
+                    relief="flat", font=(FAMILY, 12, "bold"), padding=(10, 10))
     style.map("Treeview.Heading", background=[("active", SECONDARY_HOVER)])
-    style.configure("Vertical.TScrollbar", background=SECONDARY, troughcolor=FIELD, bordercolor=FIELD,
-                    arrowcolor=MUTED, lightcolor=SECONDARY, darkcolor=SECONDARY)
-    style.map("Vertical.TScrollbar", background=[("active", SECONDARY_HOVER)])
+    for orient in ("Vertical", "Horizontal"):
+        style.configure(f"{orient}.TScrollbar", background=SECONDARY, troughcolor=FIELD,
+                        bordercolor=FIELD, arrowcolor=MUTED, lightcolor=SECONDARY, darkcolor=SECONDARY)
+        style.map(f"{orient}.TScrollbar", background=[("active", SECONDARY_HOVER)])
 
 
 def card(parent, **kw):
@@ -99,7 +100,7 @@ _BUTTON_COLOURS = {
 def button(parent, text, command, kind="secondary", icon=None, width=None):
     fg, hover = _BUTTON_COLOURS[kind]
     opts = {"text": text, "command": command, "fg_color": fg, "hover_color": hover,
-            "text_color": "#ffffff", "corner_radius": 10, "height": 38, "font": font(13, "bold")}
+            "text_color": "#ffffff", "corner_radius": 10, "height": 42, "font": font(14, "bold")}
     if icon is not None:
         opts.update(image=icon, compound="left")
     if width:
@@ -107,17 +108,17 @@ def button(parent, text, command, kind="secondary", icon=None, width=None):
     return ctk.CTkButton(parent, **opts)
 
 
-def label(parent, text, size=13, weight="normal", color=TEXT, **kw):
+def label(parent, text, size=14, weight="normal", color=TEXT, **kw):
     return ctk.CTkLabel(parent, text=text, font=font(size, weight), text_color=color, **kw)
 
 
-def muted(parent, text, size=12, **kw):
+def muted(parent, text, size=13, **kw):
     return label(parent, text, size, color=MUTED, **kw)
 
 
 def entry(parent, var=None, width=None, **kw):
-    opts = {"height": 36, "corner_radius": 8, "fg_color": FIELD, "border_color": CARD_BORDER,
-            "text_color": TEXT, "font": font(13)}
+    opts = {"height": 40, "corner_radius": 8, "fg_color": FIELD, "border_color": CARD_BORDER,
+            "text_color": TEXT, "font": font(14)}
     if var is not None:
         opts["textvariable"] = var
     if width:
@@ -128,6 +129,6 @@ def entry(parent, var=None, width=None, **kw):
 
 def switch(parent, text, var):
     """On/off switch bound to an IntVar (1 = on, 0 = off)."""
-    return ctk.CTkSwitch(parent, text=text, variable=var, onvalue=1, offvalue=0, font=font(13),
+    return ctk.CTkSwitch(parent, text=text, variable=var, onvalue=1, offvalue=0, font=font(14),
                          text_color=TEXT, progress_color=GREEN, fg_color=SECONDARY,
-                         button_color="#ffffff", button_hover_color="#e4e4ea", height=24)
+                         button_color="#ffffff", button_hover_color="#e4e4ea", height=28)

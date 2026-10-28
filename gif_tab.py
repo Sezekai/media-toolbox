@@ -3,7 +3,6 @@ import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox
-from tkinter import ttk
 
 import customtkinter as ctk
 from PIL import Image
@@ -16,7 +15,6 @@ from theme import button, card, entry, label, muted
 from widgets import Page, tree_in_card
 
 MIN_CLIP = 0.1  # shortest allowed timeframe, in seconds
-PREVIEW_SIZE = (260, 146)
 
 
 def fmt_time(seconds):
@@ -34,11 +32,11 @@ def parse_time(text):
 
 
 class Timeline(tk.Canvas):
-    """A bar showing the whole video, with the GIF's start and end handles on it."""
-    PAD = 14
+    """A bar showing the whole video, with the GIF's start and end handles on it. Stretches to the window width."""
+    PAD = 16
 
     def __init__(self, master, on_drag, on_release):
-        super().__init__(master, height=56, background=theme.FIELD, highlightthickness=0)
+        super().__init__(master, height=72, background=theme.FIELD, highlightthickness=0)
         self.on_drag = on_drag
         self.on_release = on_release
         self.duration = 0.0
@@ -67,15 +65,15 @@ class Timeline(tk.Canvas):
         if not self.duration:
             return
         w, h = self.winfo_width(), self.winfo_height()
-        top, bottom = 12, h - 12
+        top, bottom = 16, h - 18
         self.create_rectangle(self.PAD, top, w - self.PAD, bottom, fill=theme.TRACK, outline="")
         xs, xe = self._x(self.start), self._x(self.end)
         self.create_rectangle(xs, top, xe, bottom, fill=theme.GREEN, outline="")
         for x in (xs, xe):
-            self.create_line(x, top - 5, x, bottom + 5, fill="#ffffff", width=3)
-        self.create_text(self.PAD, h - 1, text="0:00.0", anchor="sw", fill=theme.MUTED, font=(theme.FAMILY, 9))
-        self.create_text(w - self.PAD, h - 1, text=fmt_time(self.duration), anchor="se",
-                         fill=theme.MUTED, font=(theme.FAMILY, 9))
+            self.create_line(x, top - 6, x, bottom + 6, fill="#ffffff", width=3)
+        self.create_text(self.PAD, h - 2, text="0:00.0", anchor="sw", fill=theme.MUTED, font=(theme.FAMILY, 10))
+        self.create_text(w - self.PAD, h - 2, text=fmt_time(self.duration), anchor="se",
+                         fill=theme.MUTED, font=(theme.FAMILY, 10))
 
     def _press(self, event):
         if not self.duration:
@@ -119,10 +117,13 @@ class GifTab(Page):
         self.current = None  # path shown in the timeframe editor
         self._preview_after = None
         self._preview_id = 0
+        self._refit_after = None
+        self._frames = {"start": None, "end": None}  # full-size preview frames (PIL)
         self._images = []    # keep references so the preview images aren't dropped
         self._blank = ctk.CTkImage(light_image=Image.new("RGBA", (1, 1), (0, 0, 0, 0)),
                                    dark_image=Image.new("RGBA", (1, 1), (0, 0, 0, 0)), size=(1, 1))
         self.body.grid_rowconfigure(2, weight=1)
+        self.scroll.add_resize_callback(self._refit_previews)
 
         # Source and output settings
         setup = card(self.body)
@@ -132,82 +133,83 @@ class GifTab(Page):
 
         load = ctk.CTkFrame(setup, fg_color="transparent")
         load.grid(row=1, column=0, columnspan=3, sticky="w", padx=18, pady=(0, 8))
-        theme.switch(load, "Include subfolders", self.recursive).pack(side="left", padx=(0, 22))
+        theme.switch(load, "Include subfolders", self.recursive).pack(side="left", padx=(0, 26))
         button(load, "Load videos", self.load_videos, "primary", icon=icons.icon("gif", "#ffffff", 18)).pack(side="left")
 
         settings = ctk.CTkFrame(setup, fg_color="transparent")
         settings.grid(row=2, column=0, columnspan=3, sticky="w", padx=18, pady=(4, 8))
         muted(settings, "FPS").pack(side="left")
-        entry(settings, self.fps, width=64).pack(side="left", padx=(8, 18))
+        entry(settings, self.fps, width=72).pack(side="left", padx=(8, 20))
         muted(settings, "Width (px)").pack(side="left")
-        entry(settings, self.width, width=72).pack(side="left", padx=(8, 18))
+        entry(settings, self.width, width=84).pack(side="left", padx=(8, 20))
         muted(settings, "Quality").pack(side="left")
         ctk.CTkComboBox(settings, values=list(gif_maker.QUALITY_PRESETS), variable=self.quality,
-                        state="readonly", width=142, height=36, corner_radius=8, font=theme.font(13),
+                        state="readonly", width=160, height=40, corner_radius=8, font=theme.font(14),
                         fg_color=theme.FIELD, border_color=theme.CARD_BORDER, text_color=theme.TEXT,
                         button_color=theme.SECONDARY, button_hover_color=theme.SECONDARY_HOVER,
                         dropdown_fg_color=theme.CARD, dropdown_hover_color=theme.SECONDARY,
-                        dropdown_text_color=theme.TEXT).pack(side="left", padx=(8, 12))
+                        dropdown_text_color=theme.TEXT, dropdown_font=theme.font(14)).pack(side="left", padx=(8, 16))
         muted(settings, "Higher quality = better colours, bigger file, slower").pack(side="left")
 
         self.folder_row(setup, 3, "Save GIFs to", self.out_dir, "Save GIFs to...")
         muted(setup, "Leave the output folder empty to save each GIF beside its video.").grid(
             row=4, column=1, sticky="w", padx=6, pady=(0, 14))
 
-        # Video list
-        list_card = card(self.body)
-        list_card.grid(row=2, column=0, sticky="nsew", pady=(12, 0))
-        self.tree = tree_in_card(list_card, ("file", "length", "range"),
-                                 ("File", "Length", "Timeframe"), (520, 90, 200))
-        self.tree.bind("<<TreeviewSelect>>", self._on_select)
-
         # Actions
         actions = ctk.CTkFrame(self.body, fg_color="transparent")
-        actions.grid(row=3, column=0, sticky="ew", pady=10)
+        actions.grid(row=1, column=0, sticky="ew", pady=12)
         button(actions, "Select all", self.select_all).pack(side="left")
         button(actions, "Clear timeframes", self.clear_selected_ranges).pack(side="left", padx=8)
         button(actions, "Convert selected", lambda: self.convert(selected_only=True), "primary",
                icon=icons.icon("gif", "#ffffff", 18)).pack(side="left")
         button(actions, "Convert all", lambda: self.convert(selected_only=False), "primary").pack(side="left", padx=8)
 
+        # Video list (grows with the window)
+        list_card = card(self.body)
+        list_card.grid(row=2, column=0, sticky="nsew", pady=(0, 12))
+        self.tree = tree_in_card(list_card, ("file", "length", "range"),
+                                 ("File", "Length", "Timeframe"), (560, 110, 220))
+        self.tree.bind("<<TreeviewSelect>>", self._on_select)
+
         # Timeframe editor
         editor = card(self.body)
-        editor.grid(row=4, column=0, sticky="ew")
+        editor.grid(row=3, column=0, sticky="ew", pady=(0, 8))
         head = ctk.CTkFrame(editor, fg_color="transparent")
-        head.pack(fill="x", padx=18, pady=(12, 6))
-        label(head, "Timeframe", size=15, weight="bold").pack(side="left")
+        head.pack(fill="x", padx=18, pady=(14, 8))
+        label(head, "Timeframe", size=16, weight="bold").pack(side="left")
         muted(head, "   Click a video in the list to set its clip (drag the handles or type times)").pack(side="left")
 
         self.timeline = Timeline(editor, on_drag=self._on_drag, on_release=self._on_release)
-        self.timeline.pack(fill="x", padx=18, pady=(0, 10))
+        self.timeline.pack(fill="x", padx=18, pady=(0, 12))
 
         controls = ctk.CTkFrame(editor, fg_color="transparent")
         controls.pack(fill="x", padx=18)
         muted(controls, "Start").pack(side="left")
-        start_entry = entry(controls, self.start_text, width=96)
+        start_entry = entry(controls, self.start_text, width=110)
         start_entry.pack(side="left", padx=(8, 16))
         start_entry.bind("<Return>", lambda _e: self._apply_entries())
         muted(controls, "End").pack(side="left")
-        end_entry = entry(controls, self.end_text, width=96)
+        end_entry = entry(controls, self.end_text, width=110)
         end_entry.pack(side="left", padx=(8, 16))
         end_entry.bind("<Return>", lambda _e: self._apply_entries())
         button(controls, "Apply", self._apply_entries).pack(side="left")
         button(controls, "Whole video", self._reset_range).pack(side="left", padx=8)
         self.length_label = label(controls, "", weight="bold")
-        self.length_label.pack(side="left", padx=10)
+        self.length_label.pack(side="left", padx=12)
 
         previews = ctk.CTkFrame(editor, fg_color="transparent")
-        previews.pack(fill="x", padx=18, pady=(12, 16))
-        self.start_preview = self._preview_box(previews, "Clip starts at")
-        self.end_preview = self._preview_box(previews, "Clip ends at")
+        previews.pack(fill="x", padx=18, pady=(14, 18))
+        previews.grid_columnconfigure((0, 1), weight=1, uniform="preview")
+        self.start_preview = self._preview_box(previews, 0, "Clip starts at")
+        self.end_preview = self._preview_box(previews, 1, "Clip ends at")
 
-    def _preview_box(self, parent, caption):
-        box = ctk.CTkFrame(parent, fg_color=theme.FIELD, corner_radius=10)
-        box.pack(side="left", padx=(0, 16))
-        muted(box, caption).pack(anchor="w", padx=12, pady=(8, 4))
-        view = ctk.CTkLabel(box, text="No video selected", width=PREVIEW_SIZE[0], height=PREVIEW_SIZE[1],
-                            font=theme.font(12), text_color=theme.MUTED)
-        view.pack(padx=12, pady=(0, 12))
+    def _preview_box(self, parent, col, caption):
+        box = ctk.CTkFrame(parent, fg_color=theme.FIELD, corner_radius=12)
+        box.grid(row=0, column=col, sticky="nsew", padx=(0, 8) if col == 0 else (8, 0))
+        muted(box, caption).pack(anchor="w", padx=14, pady=(10, 6))
+        view = ctk.CTkLabel(box, text="No video selected", height=190, font=theme.font(14),
+                            text_color=theme.MUTED)
+        view.pack(fill="both", expand=True, padx=14, pady=(0, 14))
         return view
 
     # ---------- loading ----------
@@ -272,6 +274,7 @@ class GifTab(Page):
         self.start_text.set("")
         self.end_text.set("")
         self.length_label.configure(text="")
+        self._frames = {"start": None, "end": None}
         self._reset_preview(self.start_preview)
         self._reset_preview(self.end_preview)
 
@@ -364,15 +367,32 @@ class GifTab(Page):
     def _show_previews(self, token, first, last):
         if token != self._preview_id:  # a newer preview has been requested since
             return
+        self._frames = {"start": first, "end": last}
         for view, img in ((self.start_preview, first), (self.end_preview, last)):
             if img is None:
                 view.configure(image=self._blank, text="Could not read this frame")
+        self._render_previews()
+
+    def _refit_previews(self):
+        """Called when the window is resized, so the preview images fill their boxes again."""
+        if self._refit_after:
+            self.after_cancel(self._refit_after)
+        self._refit_after = self.after(120, self._render_previews)
+
+    def _render_previews(self):
+        self._refit_after = None
+        for view, key in ((self.start_preview, "start"), (self.end_preview, "end")):
+            img = self._frames.get(key)
+            if img is None:
                 continue
-            img = img.copy()
-            img.thumbnail(PREVIEW_SIZE)
-            photo = ctk.CTkImage(light_image=img, dark_image=img, size=img.size)
+            box_w = max(60, view.winfo_width() - 16)
+            box_h = max(60, view.winfo_height() - 16)
+            scale = min(box_w / img.width, box_h / img.height)
+            size = (max(1, int(img.width * scale)), max(1, int(img.height * scale)))
+            resized = img.resize(size, Image.LANCZOS)
+            photo = ctk.CTkImage(light_image=resized, dark_image=resized, size=size)
             self._images.append(photo)
-            self._images = self._images[-4:]
+            self._images = self._images[-6:]
             view.configure(image=photo, text="")
 
     # ---------- converting ----------

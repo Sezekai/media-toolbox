@@ -1,11 +1,11 @@
-"""Shared page layout and helpers used by every tool page."""
+"""Shared page layout: a scrolling area and helpers used by every tool page."""
 import tkinter as tk
 from tkinter import filedialog, ttk
 
 import customtkinter as ctk
 
 import theme
-from theme import button, card, entry, label, muted
+from theme import button, entry, label, muted
 
 
 def _pick(var, title):
@@ -14,14 +14,63 @@ def _pick(var, title):
         var.set(chosen)
 
 
+class ScrollArea(ctk.CTkFrame):
+    """Holds a page's content. When there is room the content fills the area and resizes with the window;
+    when there isn't, it scrolls up/down and left/right."""
+
+    def __init__(self, master):
+        super().__init__(master, fg_color="transparent")
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        self.canvas = tk.Canvas(self, background=theme.APP_BG, highlightthickness=0, bd=0)
+        vbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        hbar = ttk.Scrollbar(self, orient="horizontal", command=self.canvas.xview)
+        self.canvas.configure(yscrollcommand=vbar.set, xscrollcommand=hbar.set)
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        vbar.grid(row=0, column=1, sticky="ns")
+        hbar.grid(row=1, column=0, sticky="ew")
+
+        self.inner = tk.Frame(self.canvas, background=theme.APP_BG)
+        self._window = self.canvas.create_window(0, 0, window=self.inner, anchor="nw")
+        self._callbacks = []
+        self.canvas.bind("<Configure>", self._fit)
+        self.inner.bind("<Configure>", self._fit)
+        self.bind_all("<MouseWheel>", self._wheel, add="+")
+
+    def add_resize_callback(self, fn):
+        self._callbacks.append(fn)
+
+    def _fit(self, _event=None):
+        cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
+        w = max(cw, self.inner.winfo_reqwidth())
+        h = max(ch, self.inner.winfo_reqheight())
+        self.canvas.itemconfigure(self._window, width=w, height=h)
+        self.canvas.configure(scrollregion=(0, 0, w, h))
+        for fn in self._callbacks:
+            fn()
+
+    def _wheel(self, event):
+        # Scroll this page when the pointer is over it. Tables and text boxes scroll themselves.
+        target = self.winfo_containing(event.x_root, event.y_root)
+        if target is None or not str(target).startswith(str(self)):
+            return
+        if isinstance(target, (ttk.Treeview, tk.Text)):
+            return
+        if event.state & 0x0001:  # Shift held: scroll sideways
+            self.canvas.xview_scroll(int(-event.delta / 120), "units")
+        else:
+            self.canvas.yview_scroll(int(-event.delta / 120), "units")
+
+
 def tree_in_card(parent, columns, headings, widths):
-    """A table with a scrollbar, placed inside a rounded card. Returns the Treeview."""
+    """A table with a scrollbar, placed inside a rounded card. Every column can be resized by dragging
+    the dividers in its heading. Returns the Treeview."""
     inner = ctk.CTkFrame(parent, fg_color="transparent")
     inner.pack(fill="both", expand=True, padx=12, pady=12)
-    tree = ttk.Treeview(inner, columns=columns, show="headings", selectmode="extended")
-    for i, (col, text, width) in enumerate(zip(columns, headings, widths)):
+    tree = ttk.Treeview(inner, columns=columns, show="headings", selectmode="extended", height=8)
+    for col, text, width in zip(columns, headings, widths):
         tree.heading(col, text=text)
-        tree.column(col, width=width, stretch=(i == 0))
+        tree.column(col, width=width, minwidth=90, stretch=True)
     scroll = ttk.Scrollbar(inner, orient="vertical", command=tree.yview)
     tree.configure(yscrollcommand=scroll.set)
     tree.pack(side="left", fill="both", expand=True)
@@ -30,7 +79,7 @@ def tree_in_card(parent, columns, headings, widths):
 
 
 class Page(ctk.CTkFrame):
-    """A tool page: a title, a subtitle, then the page body built by build()."""
+    """A tool page: a title and subtitle, then the page content in a scrolling area. Subclasses build() it."""
     title = ""
     subtitle = ""
 
@@ -42,11 +91,16 @@ class Page(ctk.CTkFrame):
 
         head = ctk.CTkFrame(self, fg_color="transparent")
         head.grid(row=0, column=0, sticky="ew", pady=(0, 16))
-        label(head, self.title, size=24, weight="bold").pack(anchor="w")
-        muted(head, self.subtitle, size=13).pack(anchor="w", pady=(4, 0))
+        label(head, self.title, size=28, weight="bold").pack(anchor="w")
+        muted(head, self.subtitle, size=14).pack(anchor="w", pady=(4, 0))
 
-        self.body = ctk.CTkFrame(self, fg_color="transparent")
-        self.body.grid(row=1, column=0, sticky="nsew")
+        self.scroll = ScrollArea(self)
+        self.scroll.grid(row=1, column=0, sticky="nsew")
+        self.scroll.inner.grid_rowconfigure(0, weight=1)
+        self.scroll.inner.grid_columnconfigure(0, weight=1)
+
+        self.body = ctk.CTkFrame(self.scroll.inner, fg_color="transparent")
+        self.body.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         self.body.grid_columnconfigure(0, weight=1)
         self.build()
 
@@ -57,5 +111,5 @@ class Page(ctk.CTkFrame):
         """Label, path box and Browse button on one row. The parent needs column 1 to stretch."""
         label(parent, text).grid(row=row, column=0, sticky="w", padx=(18, 12), pady=8)
         entry(parent, var).grid(row=row, column=1, sticky="ew", padx=6, pady=8)
-        button(parent, "Browse", lambda: _pick(var, title), width=100).grid(
+        button(parent, "Browse", lambda: _pick(var, title), width=110).grid(
             row=row, column=2, padx=(6, 18), pady=8)
