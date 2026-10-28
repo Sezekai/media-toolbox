@@ -9,6 +9,10 @@ VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v", ".wmv", ".f
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
+def noop(*_args, **_kwargs):
+    """Stand-in for an optional progress or log callback."""
+
+
 def _tool(name):
     """Use the binary bundled inside the .exe if present, otherwise the one on PATH."""
     base = getattr(sys, "_MEIPASS", None)  # set by PyInstaller when running as an .exe

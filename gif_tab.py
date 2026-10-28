@@ -7,6 +7,7 @@ from tkinter import filedialog, messagebox, ttk
 from PIL import ImageTk
 
 import gif_maker
+import theme
 from media_utils import find_videos, probe_duration
 
 MIN_CLIP = 0.1  # shortest allowed timeframe, in seconds
@@ -32,7 +33,7 @@ class Timeline(tk.Canvas):
     PAD = 14
 
     def __init__(self, master, on_drag, on_release):
-        super().__init__(master, height=60, background="#1e1e1e", highlightthickness=0)
+        super().__init__(master, height=60, background=theme.FIELD, highlightthickness=0)
         self.on_drag = on_drag
         self.on_release = on_release
         self.duration = 0.0
@@ -62,14 +63,14 @@ class Timeline(tk.Canvas):
             return
         w, h = self.winfo_width(), self.winfo_height()
         top, bottom = 14, h - 14
-        self.create_rectangle(self.PAD, top, w - self.PAD, bottom, fill="#3a3a3a", outline="")
+        self.create_rectangle(self.PAD, top, w - self.PAD, bottom, fill=theme.BTN, outline="")
         xs, xe = self._x(self.start), self._x(self.end)
-        self.create_rectangle(xs, top, xe, bottom, fill="#3d7ac7", outline="")
+        self.create_rectangle(xs, top, xe, bottom, fill=theme.ACCENT, outline="")
         for x in (xs, xe):
-            self.create_line(x, top - 6, x, bottom + 6, fill="white", width=3)
-        self.create_text(self.PAD, h - 2, text="0:00.0", anchor="sw", fill="#aaaaaa", font=("Segoe UI", 8))
+            self.create_line(x, top - 6, x, bottom + 6, fill="#ffffff", width=3)
+        self.create_text(self.PAD, h - 2, text="0:00.0", anchor="sw", fill=theme.MUTED, font=("Segoe UI", 9))
         self.create_text(w - self.PAD, h - 2, text=fmt_time(self.duration), anchor="se",
-                         fill="#aaaaaa", font=("Segoe UI", 8))
+                         fill=theme.MUTED, font=("Segoe UI", 9))
 
     def _press(self, event):
         if not self.duration:
@@ -103,6 +104,7 @@ class GifTab(ttk.Frame):
         self.recursive = tk.BooleanVar(value=True)
         self.fps = tk.StringVar(value="12")
         self.width = tk.StringVar(value="480")
+        self.quality = tk.StringVar(value="Standard")
         self.out_dir = tk.StringVar()
         self.start_text = tk.StringVar()
         self.end_text = tk.StringVar()
@@ -114,7 +116,7 @@ class GifTab(ttk.Frame):
         self._preview_id = 0
         self._photos = []    # keep references so Tk doesn't drop the images
         self.columnconfigure(1, weight=1)
-        self.rowconfigure(3, weight=1)
+        self.rowconfigure(4, weight=1)
         self._build()
 
     # ---------- layout ----------
@@ -126,7 +128,7 @@ class GifTab(ttk.Frame):
         top = ttk.Frame(self)
         top.grid(row=1, column=0, columnspan=3, sticky="w", padx=6, pady=2)
         ttk.Checkbutton(top, text="Include subfolders", variable=self.recursive).pack(side="left", padx=(0, 12))
-        ttk.Button(top, text="Load videos", command=self.load_videos).pack(side="left")
+        ttk.Button(top, text="Load videos", style="Go.TButton", command=self.load_videos).pack(side="left")
 
         settings = ttk.Frame(self)
         settings.grid(row=2, column=0, columnspan=3, sticky="w", padx=6, pady=4)
@@ -134,13 +136,24 @@ class GifTab(ttk.Frame):
         ttk.Entry(settings, textvariable=self.fps, width=5).pack(side="left", padx=(4, 14))
         ttk.Label(settings, text="Width (px)").pack(side="left")
         ttk.Entry(settings, textvariable=self.width, width=6).pack(side="left", padx=(4, 14))
-        ttk.Label(settings, text="Save to").pack(side="left")
-        ttk.Entry(settings, textvariable=self.out_dir, width=36).pack(side="left", padx=4)
-        ttk.Button(settings, text="Browse...", command=self._browse_out).pack(side="left")
-        ttk.Label(settings, text="(blank = beside each video)").pack(side="left", padx=6)
+        ttk.Label(settings, text="Quality").pack(side="left")
+        quality = ttk.Combobox(settings, textvariable=self.quality, values=list(gif_maker.QUALITY_PRESETS),
+                               state="readonly", width=10)
+        quality.pack(side="left", padx=(4, 6))
+        ttk.Label(settings, text="(higher = better colours, bigger file, slower)",
+                  style="Muted.TLabel").pack(side="left", padx=(0, 6))
+
+        output = ttk.Frame(self)
+        output.grid(row=3, column=0, columnspan=3, sticky="ew", padx=6, pady=4)
+        output.columnconfigure(1, weight=1)
+        ttk.Label(output, text="Save GIFs to:").grid(row=0, column=0, sticky="w")
+        ttk.Entry(output, textvariable=self.out_dir).grid(row=0, column=1, sticky="ew", padx=6)
+        ttk.Button(output, text="Browse...", command=self._browse_out).grid(row=0, column=2)
+        ttk.Label(output, text="(leave blank to save each GIF beside its video)",
+                  style="Muted.TLabel").grid(row=1, column=1, sticky="w", padx=6)
 
         list_frame = ttk.Frame(self)
-        list_frame.grid(row=3, column=0, columnspan=3, sticky="nsew", padx=6, pady=4)
+        list_frame.grid(row=4, column=0, columnspan=3, sticky="nsew", padx=6, pady=4)
         self.tree = ttk.Treeview(list_frame, columns=("file", "length", "range"),
                                  show="headings", selectmode="extended", height=8)
         for col, text, width in (("file", "File", 420), ("length", "Length", 80), ("range", "Timeframe", 200)):
@@ -153,17 +166,17 @@ class GifTab(ttk.Frame):
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
 
         buttons = ttk.Frame(self)
-        buttons.grid(row=4, column=0, columnspan=3, sticky="w", padx=6, pady=6)
+        buttons.grid(row=5, column=0, columnspan=3, sticky="w", padx=6, pady=6)
         ttk.Button(buttons, text="Select all", command=self.select_all).pack(side="left")
         ttk.Button(buttons, text="Clear timeframes (selected)",
                    command=self.clear_selected_ranges).pack(side="left", padx=6)
-        ttk.Button(buttons, text="Convert selected",
+        ttk.Button(buttons, text="Convert selected", style="Go.TButton",
                    command=lambda: self.convert(selected_only=True)).pack(side="left", padx=6)
-        ttk.Button(buttons, text="Convert all",
+        ttk.Button(buttons, text="Convert all", style="Go.TButton",
                    command=lambda: self.convert(selected_only=False)).pack(side="left")
 
         editor = ttk.LabelFrame(self, text="Timeframe (click a video in the list to set its clip)")
-        editor.grid(row=5, column=0, columnspan=3, sticky="ew", padx=6, pady=(4, 0))
+        editor.grid(row=6, column=0, columnspan=3, sticky="ew", padx=6, pady=(4, 0))
         self.timeline = Timeline(editor, on_drag=self._on_drag, on_release=self._on_release)
         self.timeline.pack(fill="x", padx=8, pady=(8, 4))
 
@@ -179,7 +192,7 @@ class GifTab(ttk.Frame):
         end_entry.bind("<Return>", lambda _e: self._apply_entries())
         ttk.Button(controls, text="Apply", command=self._apply_entries).pack(side="left")
         ttk.Button(controls, text="Whole video", command=self._reset_range).pack(side="left", padx=8)
-        ttk.Label(controls, textvariable=self.length_text).pack(side="left", padx=8)
+        ttk.Label(controls, textvariable=self.length_text, style="Status.TLabel").pack(side="left", padx=8)
 
         previews = ttk.Frame(editor)
         previews.pack(pady=8)
@@ -189,8 +202,8 @@ class GifTab(ttk.Frame):
     def _preview_box(self, parent, caption):
         box = ttk.Frame(parent)
         box.pack(side="left", padx=12)
-        ttk.Label(box, text=caption).pack()
-        label = ttk.Label(box, text="(no video selected)", width=40, anchor="center")
+        ttk.Label(box, text=caption, style="Muted.TLabel").pack()
+        label = ttk.Label(box, text="(no video selected)", width=40, anchor="center", style="Muted.TLabel")
         label.pack()
         return label
 
@@ -389,4 +402,4 @@ class GifTab(ttk.Frame):
                 jobs.append((Path(iid), start, end))
             else:
                 jobs.append((Path(iid), 0.0, None))
-        self.app.run_background(gif_maker.convert_batch, jobs, fps, width, out_dir, log=self.app.log)
+        self.app.run_background(gif_maker.convert_batch, jobs, fps, width, self.quality.get(), out_dir)
