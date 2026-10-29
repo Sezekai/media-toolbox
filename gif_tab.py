@@ -12,7 +12,7 @@ import icons
 import theme
 from media_utils import find_videos, probe_duration
 from theme import button, card, entry, label, muted
-from widgets import Page, tree_in_card
+from widgets import Page, _pick, tree_in_card
 
 MIN_CLIP = 0.1  # shortest allowed timeframe, in seconds
 
@@ -140,56 +140,62 @@ class GifTab(Page):
         split.add(left, minsize=theme.px(460), stretch="always")
         split.add(right, minsize=theme.px(380), stretch="always")
 
-        # Left: settings and actions above, the video list below. A divider separates them.
-        stack = splitter(left, "vertical")
-        stack.pack(fill="both", expand=True)
-        top = ctk.CTkFrame(stack, fg_color="transparent")
-        bottom = ctk.CTkFrame(stack, fg_color="transparent")
-        stack.add(top, minsize=theme.px(240), stretch="never")
-        stack.add(bottom, minsize=theme.px(160), stretch="always")
-
+        # Left: settings and actions take their natural height; the video list fills the rest
+        left.grid_columnconfigure(0, weight=1)
+        left.grid_rowconfigure(1, weight=1)
+        top = ctk.CTkFrame(left, fg_color="transparent")
+        top.grid(row=0, column=0, sticky="ew", padx=(0, 8))
         top.grid_columnconfigure(0, weight=1)
+        bottom = ctk.CTkFrame(left, fg_color="transparent")
+        bottom.grid(row=1, column=0, sticky="nsew", padx=(0, 8), pady=(10, 0))
+
         setup = card(top)
-        setup.grid(row=0, column=0, sticky="ew", padx=(0, 8), pady=(0, 0))
+        setup.grid(row=0, column=0, sticky="ew")
         setup.grid_columnconfigure(1, weight=1)
-        self.folder_row(setup, 0, "Video folder", self.folder, "Choose the video folder")
-
+        # Row 1: video folder
+        label(setup, "Video folder").grid(row=0, column=0, sticky="w", padx=(16, 10), pady=(12, 6))
+        entry(setup, self.folder).grid(row=0, column=1, sticky="ew", padx=4, pady=(12, 6))
+        button(setup, "Browse", lambda: _pick(self.folder, "Choose the video folder"), width=100).grid(
+            row=0, column=2, padx=(4, 16), pady=(12, 6))
+        # Row 2: subfolders switch and load button
         load = ctk.CTkFrame(setup, fg_color="transparent")
-        load.grid(row=1, column=0, columnspan=3, sticky="w", padx=18, pady=(0, 8))
-        theme.switch(load, "Include subfolders", self.recursive).pack(side="left", padx=(0, 26))
+        load.grid(row=1, column=0, columnspan=3, sticky="w", padx=16, pady=(0, 6))
+        theme.switch(load, "Include subfolders", self.recursive).pack(side="left", padx=(0, 20))
         button(load, "Load videos", self.load_videos, "primary", icon=icons.icon("gif", "#ffffff", 18)).pack(side="left")
-
+        # Row 3: FPS, width and quality on one line
         settings = ctk.CTkFrame(setup, fg_color="transparent")
-        settings.grid(row=2, column=0, columnspan=3, sticky="ew", padx=18, pady=(4, 4))
+        settings.grid(row=2, column=0, columnspan=3, sticky="ew", padx=16, pady=(0, 6))
+        settings.grid_columnconfigure(6, weight=1)
         muted(settings, "FPS").grid(row=0, column=0, sticky="w")
-        entry(settings, self.fps, width=72).grid(row=0, column=1, sticky="w", padx=(8, 24))
+        entry(settings, self.fps, width=64).grid(row=0, column=1, sticky="w", padx=(6, 14))
         muted(settings, "Width (px)").grid(row=0, column=2, sticky="w")
-        entry(settings, self.width, width=84).grid(row=0, column=3, sticky="w", padx=(8, 0))
-        muted(settings, "Quality").grid(row=1, column=0, sticky="w", pady=(8, 0))
-        theme.combo(settings, list(gif_maker.QUALITY_PRESETS), self.quality, width=160).grid(
-            row=1, column=1, columnspan=3, sticky="w", padx=(8, 0), pady=(8, 0))
-        muted(settings, "Higher quality = better colours, bigger file, slower").grid(
-            row=2, column=0, columnspan=4, sticky="w", pady=(6, 0))
-
-        self.folder_row(setup, 3, "Save GIFs to", self.out_dir, "Save GIFs to...")
-        muted(setup, "Leave the output folder empty to save each GIF beside its video.").grid(
-            row=4, column=1, sticky="w", padx=6, pady=(0, 14))
+        entry(settings, self.width, width=76).grid(row=0, column=3, sticky="w", padx=(6, 14))
+        muted(settings, "Quality").grid(row=0, column=4, sticky="w")
+        theme.combo(settings, list(gif_maker.QUALITY_PRESETS), self.quality, width=140).grid(
+            row=0, column=5, sticky="w", padx=(6, 12))
+        muted(settings, "Higher quality = better colours, bigger file, slower", size=12).grid(
+            row=0, column=6, sticky="ew")
+        # Row 4: output folder (empty = beside each video)
+        label(setup, "Save GIFs to").grid(row=3, column=0, sticky="w", padx=(16, 10), pady=(0, 12))
+        out = entry(setup, self.out_dir, placeholder_text="Empty = save each GIF beside its video")
+        out.grid(row=3, column=1, sticky="ew", padx=4, pady=(0, 12))
+        button(setup, "Browse", lambda: _pick(self.out_dir, "Save GIFs to..."), width=100).grid(
+            row=3, column=2, padx=(4, 16), pady=(0, 12))
 
         actions = ctk.CTkFrame(top, fg_color="transparent")
-        actions.grid(row=1, column=0, sticky="ew", pady=10, padx=(0, 8))
-        actions.grid_columnconfigure((0, 1), weight=1, uniform="act")
-        button(actions, "Select all", self.select_all).grid(row=0, column=0, sticky="ew", padx=(0, 4), pady=(0, 6))
-        button(actions, "Clear timeframes", self.clear_selected_ranges).grid(
-            row=0, column=1, sticky="ew", padx=(4, 0), pady=(0, 6))
+        actions.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        actions.grid_columnconfigure((0, 1, 2, 3), weight=1, uniform="act")
+        button(actions, "Select all", self.select_all).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        button(actions, "Clear timeframes", self.clear_selected_ranges).grid(row=0, column=1, sticky="ew", padx=4)
         button(actions, "Convert selected", lambda: self.convert(selected_only=True), "primary",
-               icon=icons.icon("gif", "#ffffff", 18)).grid(row=1, column=0, sticky="ew", padx=(0, 4))
+               icon=icons.icon("gif", "#ffffff", 18)).grid(row=0, column=2, sticky="ew", padx=4)
         button(actions, "Convert all", lambda: self.convert(selected_only=False), "primary").grid(
-            row=1, column=1, sticky="ew", padx=(4, 0))
+            row=0, column=3, sticky="ew", padx=(4, 0))
 
         bottom.grid_rowconfigure(0, weight=1)
         bottom.grid_columnconfigure(0, weight=1)
         list_card = card(bottom)
-        list_card.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=(10, 0))
+        list_card.grid(row=0, column=0, sticky="nsew")
         self.tree = tree_in_card(list_card, ("file", "length", "range"),
                                  ("File", "Length", "Timeframe"), (300, 100, 150))
         self.tree.bind("<<TreeviewSelect>>", self._on_select)

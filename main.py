@@ -458,11 +458,19 @@ class App(ctk.CTk):
         main = ctk.CTkFrame(self, fg_color=theme.APP_BG, corner_radius=0)
         main.grid(row=0, column=1, sticky="nsew")
         main.grid_columnconfigure(0, weight=1)
-        main.grid_rowconfigure(0, weight=3)   # the pages get most of the height
-        main.grid_rowconfigure(1, weight=1)   # the activity panel grows too
+        main.grid_rowconfigure(0, weight=1)
 
-        host = ctk.CTkFrame(main, fg_color="transparent")
-        host.grid(row=0, column=0, sticky="nsew", padx=24, pady=(20, 10))
+        # Pages above, activity log below. Drag the divider to make the log taller or shorter.
+        split = tk.PanedWindow(main, orient="vertical", sashwidth=theme.px(10), sashrelief="flat", bd=0,
+                               background=theme.APP_BG, opaqueresize=True)
+        split.grid(row=0, column=0, sticky="nsew")
+        top_area = ctk.CTkFrame(split, fg_color="transparent")
+        log_area = ctk.CTkFrame(split, fg_color="transparent")
+        split.add(top_area, minsize=theme.px(260), stretch="always")
+        split.add(log_area, minsize=theme.px(150), stretch="never")
+
+        host = ctk.CTkFrame(top_area, fg_color="transparent")
+        host.pack(fill="both", expand=True, padx=24, pady=(20, 10))
         host.grid_columnconfigure(0, weight=1)
         host.grid_rowconfigure(0, weight=1)
         for key, cls in PAGES.items():
@@ -470,11 +478,11 @@ class App(ctk.CTk):
             page.grid(row=0, column=0, sticky="nsew")
             self.pages[key] = page
 
-        self._build_activity(main)
+        self._build_activity(log_area)
 
-    def _build_activity(self, main):
-        panel = card(main)
-        panel.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 20))
+    def _build_activity(self, parent):
+        panel = card(parent)
+        panel.pack(fill="both", expand=True, padx=24, pady=(0, 20))
 
         top = ctk.CTkFrame(panel, fg_color="transparent")
         top.pack(fill="x", padx=18, pady=(14, 8))
