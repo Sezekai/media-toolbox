@@ -24,9 +24,13 @@ def _tool(name):
 
 
 def run(cmd, binary=False):
-    """Run ffmpeg/ffprobe. With binary=True, stdout is bytes (for image output)."""
+    """Run ffmpeg/ffprobe. With binary=True, stdout is bytes (for image output).
+    Text output is decoded as UTF-8, and any unreadable characters are replaced rather than raising."""
     cmd = [_tool(cmd[0])] + cmd[1:]
-    return subprocess.run(cmd, capture_output=True, text=not binary, creationflags=_NO_WINDOW)
+    if binary:
+        return subprocess.run(cmd, capture_output=True, creationflags=_NO_WINDOW)
+    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                          creationflags=_NO_WINDOW)
 
 
 def probe_duration(path):

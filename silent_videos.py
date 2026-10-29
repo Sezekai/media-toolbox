@@ -12,7 +12,7 @@ def has_audio_stream(path):
         "ffprobe", "-v", "error", "-select_streams", "a",
         "-show_entries", "stream=index", "-of", "csv=p=0", str(path),
     ])
-    return bool(result.stdout.strip())
+    return bool((result.stdout or "").strip())
 
 
 def max_volume_db(path):
@@ -21,7 +21,8 @@ def max_volume_db(path):
         "ffmpeg", "-hide_banner", "-nostats", "-i", str(path),
         "-map", "0:a:0", "-af", "volumedetect", "-f", "null", "-",
     ])
-    match = re.search(r"max_volume:\s*(-?[\d.]+)\s*dB", result.stderr)
+    # A completely silent track reports "-inf dB", which counts as silent.
+    match = re.search(r"max_volume:\s*(-?[\d.]+|-inf)\s*dB", result.stderr or "")
     return float(match.group(1)) if match else None
 
 
@@ -34,16 +35,20 @@ def scan_folder(folder, recursive, check_loudness, threshold_db, log=print, prog
     silent = []
     for i, path in enumerate(videos, 1):
         progress(i - 1, total, "Checking")
-        if not has_audio_stream(path):
-            silent.append((path, "no audio track"))
-            log(f"[{i}/{total}] no audio track: {path.name}")
-        elif check_loudness:
-            peak = max_volume_db(path)
-            if peak is None:
-                log(f"[{i}/{total}] could not measure audio: {path.name}")
-            elif peak <= threshold_db:
-                silent.append((path, f"audio silent (peak {peak:.1f} dB)"))
-                log(f"[{i}/{total}] silent audio ({peak:.1f} dB): {path.name}")
+        try:
+            if not has_audio_stream(path):
+                silent.append((path, "no audio track"))
+                log(f"[{i}/{total}] no audio track: {path.name}")
+            elif check_loudness:
+                peak = max_volume_db(path)
+                if peak is None:
+                    log(f"[{i}/{total}] could not measure audio: {path.name}")
+                elif peak <= threshold_db:
+                    shown = "silent" if peak == float("-inf") else f"{peak:.1f} dB"
+                    silent.append((path, f"audio silent (peak {shown})"))
+                    log(f"[{i}/{total}] silent audio ({shown}): {path.name}")
+        except Exception as exc:  # one unreadable file shouldn't stop the whole scan
+            log(f"[{i}/{total}] could not check {path.name}: {exc}")
     progress(total, total, "Checked")
     log(f"Done. {len(silent)} silent video(s) found.")
     return silent
