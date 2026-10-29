@@ -37,7 +37,8 @@ class ScrollArea(ctk.CTkFrame):
         self._callbacks = []
         self.canvas.bind("<Configure>", self._fit)
         self.inner.bind("<Configure>", self._fit)
-        self.bind_all("<MouseWheel>", self._wheel, add="+")
+        # bind_all is not allowed on CustomTkinter widgets, so the wheel is bound on the plain canvas.
+        self.canvas.bind_all("<MouseWheel>", self._wheel, add="+")
 
     def add_resize_callback(self, fn):
         self._callbacks.append(fn)
@@ -53,7 +54,7 @@ class ScrollArea(ctk.CTkFrame):
 
     def _wheel(self, event):
         # Scroll this page when the pointer is over it. Tables and text boxes scroll themselves.
-        target = self.winfo_containing(event.x_root, event.y_root)
+        target = self.canvas.winfo_containing(event.x_root, event.y_root)
         if target is None or not str(target).startswith(str(self)):
             return
         if isinstance(target, (ttk.Treeview, tk.Text)):
