@@ -1,5 +1,6 @@
 """Shared page layout: a scrolling area and helpers used by every tool page."""
 import tkinter as tk
+import weakref
 from tkinter import filedialog, ttk
 
 import customtkinter as ctk
@@ -14,6 +15,18 @@ def _pick(var, title, on_change=None):
         var.set(chosen)
         if on_change:
             on_change()
+
+
+_live_areas = weakref.WeakSet()  # every page's scroll area, so the mouse wheel can find the one under the pointer
+
+
+def _dispatch_wheel(event):
+    for area in list(_live_areas):
+        try:
+            if area.winfo_exists():
+                area._wheel(event)
+        except tk.TclError:
+            pass
 
 
 class ScrollArea(ctk.CTkFrame):
@@ -35,10 +48,13 @@ class ScrollArea(ctk.CTkFrame):
         self.inner = tk.Frame(self.canvas, background=theme.APP_BG)
         self._window = self.canvas.create_window(0, 0, window=self.inner, anchor="nw")
         self._callbacks = []
+        self._last_size = None
+        _live_areas.add(self)
         self.canvas.bind("<Configure>", self._fit)
         self.inner.bind("<Configure>", self._fit)
         # bind_all is not allowed on CustomTkinter widgets, so the wheel is bound on the plain canvas.
-        self.canvas.bind_all("<MouseWheel>", self._wheel, add="+")
+        # Without add, this replaces the previous binding instead of stacking another one on every rebuild.
+        self.canvas.bind_all("<MouseWheel>", _dispatch_wheel)
 
     def add_resize_callback(self, fn):
         self._callbacks.append(fn)
@@ -49,13 +65,23 @@ class ScrollArea(ctk.CTkFrame):
         h = max(ch, self.inner.winfo_reqheight())
         self.canvas.itemconfigure(self._window, width=w, height=h)
         self.canvas.configure(scrollregion=(0, 0, w, h))
-        for fn in self._callbacks:
-            fn()
+        # Only tell the page when the visible area really changed. Scrolling and content growth must not
+        # trigger a redraw, or pages that resize their pictures to fit can feed back into themselves.
+        if (cw, ch) != self._last_size:
+            self._last_size = (cw, ch)
+            for fn in self._callbacks:
+                fn()
 
     def _wheel(self, event):
         # Scroll this page when the pointer is over it. Tables and text boxes scroll themselves.
-        target = self.canvas.winfo_containing(event.x_root, event.y_root)
-        if target is None or not str(target).startswith(str(self)):
+        try:
+            target = self.canvas.winfo_containing(event.x_root, event.y_root)
+        except (KeyError, tk.TclError):
+            return
+        if target is None:
+            return
+        name = str(target)
+        if name != str(self) and not name.startswith(str(self) + "."):
             return
         if isinstance(target, (ttk.Treeview, tk.Text)):
             return

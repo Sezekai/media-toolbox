@@ -86,7 +86,7 @@ def radius(n):
 
 
 def _text_px(size):
-    return max(8, round(size * TEXT_SCALE))
+    return max(5, round(size * TEXT_SCALE))
 
 
 def font(size=14, weight="normal"):

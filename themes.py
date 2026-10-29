@@ -67,9 +67,11 @@ PALETTES = {
     ),
 }
 
-# Size choices shown in the Appearance page: label -> scale factor
-TEXT_SIZES = {"Small": 0.9, "Normal": 1.0, "Large": 1.15, "Extra large": 1.3}
-ELEMENT_SIZES = {"Compact": 0.9, "Normal": 1.0, "Large": 1.15, "Extra large": 1.3}
+# Size choices shown in the Appearance page: label -> scale factor (40% is really small, 160% is large)
+SIZE_STEPS = {"40%": 0.4, "50%": 0.5, "60%": 0.6, "70%": 0.7, "80%": 0.8, "90%": 0.9, "100% (normal)": 1.0,
+              "110%": 1.1, "120%": 1.2, "140%": 1.4, "160%": 1.6}
+TEXT_SIZES = SIZE_STEPS
+ELEMENT_SIZES = SIZE_STEPS
 CORNER_STYLES = {"Square": 0.0, "Soft": 0.5, "Rounded": 1.0, "Very rounded": 1.5}
 
 # Font families offered in the Appearance page (only the ones installed on the PC are shown)

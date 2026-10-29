@@ -199,11 +199,14 @@ class GifTab(Page):
         self.end_preview = self._preview_box(previews, 1, "Clip ends at")
 
     def _preview_box(self, parent, col, caption):
-        box = ctk.CTkFrame(parent, fg_color=theme.FIELD, corner_radius=theme.radius(12))
+        box = ctk.CTkFrame(parent, fg_color=theme.FIELD, corner_radius=theme.radius(12),
+                           height=theme.px(240))
         box.grid(row=0, column=col, sticky="nsew", padx=(0, 8) if col == 0 else (8, 0))
+        # The box keeps its own size. Otherwise the picture inside it sets the box size, which sets the
+        # picture size again, and the layout grows each time the page is redrawn.
+        box.pack_propagate(False)
         muted(box, caption).pack(anchor="w", padx=14, pady=(10, 6))
-        view = ctk.CTkLabel(box, text="No video selected", height=theme.px(190), font=theme.font(14),
-                            text_color=theme.MUTED)
+        view = ctk.CTkLabel(box, text="No video selected", font=theme.font(14), text_color=theme.MUTED)
         view.pack(fill="both", expand=True, padx=14, pady=(0, 14))
         return view
 
