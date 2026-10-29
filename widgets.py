@@ -49,6 +49,7 @@ class ScrollArea(ctk.CTkFrame):
         self._window = self.canvas.create_window(0, 0, window=self.inner, anchor="nw")
         self._callbacks = []
         self._last_size = None
+        self._minimum = None  # (width, height) set by a page; None means "as big as its contents"
         _live_areas.add(self)
         self.canvas.bind("<Configure>", self._fit)
         self.inner.bind("<Configure>", self._fit)
@@ -59,10 +60,18 @@ class ScrollArea(ctk.CTkFrame):
     def add_resize_callback(self, fn):
         self._callbacks.append(fn)
 
+    def set_minimum(self, width, height):
+        """The page fits the window down to this size, and only scrolls when the window is smaller."""
+        self._minimum = (width, height)
+        self._fit()
+
     def _fit(self, _event=None):
         cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
-        w = max(cw, self.inner.winfo_reqwidth())
-        h = max(ch, self.inner.winfo_reqheight())
+        if self._minimum:
+            w, h = max(cw, self._minimum[0]), max(ch, self._minimum[1])
+        else:
+            w = max(cw, self.inner.winfo_reqwidth())
+            h = max(ch, self.inner.winfo_reqheight())
         self.canvas.itemconfigure(self._window, width=w, height=h)
         self.canvas.configure(scrollregion=(0, 0, w, h))
         # Only tell the page when the visible area really changed. Scrolling and content growth must not

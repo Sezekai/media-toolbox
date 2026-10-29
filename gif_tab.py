@@ -122,12 +122,35 @@ class GifTab(Page):
         self._images = []    # keep references so the preview images aren't dropped
         self._blank = ctk.CTkImage(light_image=Image.new("RGBA", (1, 1), (0, 0, 0, 0)),
                                    dark_image=Image.new("RGBA", (1, 1), (0, 0, 0, 0)), size=(1, 1))
-        self.body.grid_rowconfigure(2, weight=1)
         self.scroll.add_resize_callback(self._refit_previews)
+        # Everything fits the window. The page only scrolls when the window is smaller than this.
+        self.scroll.set_minimum(theme.px(980), theme.px(620))
+        self.body.grid_rowconfigure(0, weight=1)
+        self.body.grid_columnconfigure(0, weight=1)
 
-        # Source and output settings
-        setup = card(self.body)
-        setup.grid(row=0, column=0, sticky="ew")
+        def splitter(parent, orient):
+            return tk.PanedWindow(parent, orient=orient, sashwidth=theme.px(10), sashrelief="flat", bd=0,
+                                  background=theme.APP_BG, opaqueresize=True)
+
+        # Left and right halves, with a draggable divider between them
+        split = splitter(self.body, "horizontal")
+        split.grid(row=0, column=0, sticky="nsew")
+        left = ctk.CTkFrame(split, fg_color="transparent")
+        right = ctk.CTkFrame(split, fg_color="transparent")
+        split.add(left, minsize=theme.px(460), stretch="always")
+        split.add(right, minsize=theme.px(380), stretch="always")
+
+        # Left: settings and actions above, the video list below. A divider separates them.
+        stack = splitter(left, "vertical")
+        stack.pack(fill="both", expand=True)
+        top = ctk.CTkFrame(stack, fg_color="transparent")
+        bottom = ctk.CTkFrame(stack, fg_color="transparent")
+        stack.add(top, minsize=theme.px(240), stretch="never")
+        stack.add(bottom, minsize=theme.px(160), stretch="always")
+
+        top.grid_columnconfigure(0, weight=1)
+        setup = card(top)
+        setup.grid(row=0, column=0, sticky="ew", padx=(0, 8), pady=(0, 0))
         setup.grid_columnconfigure(1, weight=1)
         self.folder_row(setup, 0, "Video folder", self.folder, "Choose the video folder")
 
@@ -137,73 +160,84 @@ class GifTab(Page):
         button(load, "Load videos", self.load_videos, "primary", icon=icons.icon("gif", "#ffffff", 18)).pack(side="left")
 
         settings = ctk.CTkFrame(setup, fg_color="transparent")
-        settings.grid(row=2, column=0, columnspan=3, sticky="w", padx=18, pady=(4, 8))
-        muted(settings, "FPS").pack(side="left")
-        entry(settings, self.fps, width=72).pack(side="left", padx=(8, 20))
-        muted(settings, "Width (px)").pack(side="left")
-        entry(settings, self.width, width=84).pack(side="left", padx=(8, 20))
-        muted(settings, "Quality").pack(side="left")
-        theme.combo(settings, list(gif_maker.QUALITY_PRESETS), self.quality, width=160).pack(side="left", padx=(8, 16))
-        muted(settings, "Higher quality = better colours, bigger file, slower").pack(side="left")
+        settings.grid(row=2, column=0, columnspan=3, sticky="ew", padx=18, pady=(4, 4))
+        muted(settings, "FPS").grid(row=0, column=0, sticky="w")
+        entry(settings, self.fps, width=72).grid(row=0, column=1, sticky="w", padx=(8, 24))
+        muted(settings, "Width (px)").grid(row=0, column=2, sticky="w")
+        entry(settings, self.width, width=84).grid(row=0, column=3, sticky="w", padx=(8, 0))
+        muted(settings, "Quality").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        theme.combo(settings, list(gif_maker.QUALITY_PRESETS), self.quality, width=160).grid(
+            row=1, column=1, columnspan=3, sticky="w", padx=(8, 0), pady=(8, 0))
+        muted(settings, "Higher quality = better colours, bigger file, slower").grid(
+            row=2, column=0, columnspan=4, sticky="w", pady=(6, 0))
 
         self.folder_row(setup, 3, "Save GIFs to", self.out_dir, "Save GIFs to...")
         muted(setup, "Leave the output folder empty to save each GIF beside its video.").grid(
             row=4, column=1, sticky="w", padx=6, pady=(0, 14))
 
-        # Actions
-        actions = ctk.CTkFrame(self.body, fg_color="transparent")
-        actions.grid(row=1, column=0, sticky="ew", pady=12)
-        button(actions, "Select all", self.select_all).pack(side="left")
-        button(actions, "Clear timeframes", self.clear_selected_ranges).pack(side="left", padx=8)
+        actions = ctk.CTkFrame(top, fg_color="transparent")
+        actions.grid(row=1, column=0, sticky="ew", pady=10, padx=(0, 8))
+        actions.grid_columnconfigure((0, 1), weight=1, uniform="act")
+        button(actions, "Select all", self.select_all).grid(row=0, column=0, sticky="ew", padx=(0, 4), pady=(0, 6))
+        button(actions, "Clear timeframes", self.clear_selected_ranges).grid(
+            row=0, column=1, sticky="ew", padx=(4, 0), pady=(0, 6))
         button(actions, "Convert selected", lambda: self.convert(selected_only=True), "primary",
-               icon=icons.icon("gif", "#ffffff", 18)).pack(side="left")
-        button(actions, "Convert all", lambda: self.convert(selected_only=False), "primary").pack(side="left", padx=8)
+               icon=icons.icon("gif", "#ffffff", 18)).grid(row=1, column=0, sticky="ew", padx=(0, 4))
+        button(actions, "Convert all", lambda: self.convert(selected_only=False), "primary").grid(
+            row=1, column=1, sticky="ew", padx=(4, 0))
 
-        # Video list (grows with the window)
-        list_card = card(self.body)
-        list_card.grid(row=2, column=0, sticky="nsew", pady=(0, 12))
+        bottom.grid_rowconfigure(0, weight=1)
+        bottom.grid_columnconfigure(0, weight=1)
+        list_card = card(bottom)
+        list_card.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=(10, 0))
         self.tree = tree_in_card(list_card, ("file", "length", "range"),
-                                 ("File", "Length", "Timeframe"), (560, 110, 220))
+                                 ("File", "Length", "Timeframe"), (300, 100, 150))
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
 
-        # Timeframe editor
-        editor = card(self.body)
-        editor.grid(row=3, column=0, sticky="ew", pady=(0, 8))
+        # Right: the timeframe editor, which fills the height of the page
+        right.grid_rowconfigure(0, weight=1)
+        right.grid_columnconfigure(0, weight=1)
+        editor = card(right)
+        editor.grid(row=0, column=0, sticky="nsew", padx=(8, 0))
+        editor.grid_columnconfigure(0, weight=1)
+        editor.grid_rowconfigure(3, weight=1)
         head = ctk.CTkFrame(editor, fg_color="transparent")
-        head.pack(fill="x", padx=18, pady=(14, 8))
+        head.grid(row=0, column=0, sticky="ew", padx=18, pady=(14, 8))
         label(head, "Timeframe", size=16, weight="bold").pack(side="left")
-        muted(head, "   Click a video in the list to set its clip (drag the handles or type times)").pack(side="left")
+        muted(head, "   Click a video in the list to set its clip").pack(side="left")
 
         self.timeline = Timeline(editor, on_drag=self._on_drag, on_release=self._on_release)
-        self.timeline.pack(fill="x", padx=18, pady=(0, 12))
+        self.timeline.grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 12))
 
         controls = ctk.CTkFrame(editor, fg_color="transparent")
-        controls.pack(fill="x", padx=18)
-        muted(controls, "Start").pack(side="left")
+        controls.grid(row=2, column=0, sticky="ew", padx=18)
+        muted(controls, "Start").grid(row=0, column=0, sticky="w")
         start_entry = entry(controls, self.start_text, width=110)
-        start_entry.pack(side="left", padx=(8, 16))
+        start_entry.grid(row=0, column=1, sticky="w", padx=(8, 16))
         start_entry.bind("<Return>", lambda _e: self._apply_entries())
-        muted(controls, "End").pack(side="left")
+        muted(controls, "End").grid(row=0, column=2, sticky="w")
         end_entry = entry(controls, self.end_text, width=110)
-        end_entry.pack(side="left", padx=(8, 16))
+        end_entry.grid(row=0, column=3, sticky="w", padx=(8, 0))
         end_entry.bind("<Return>", lambda _e: self._apply_entries())
-        button(controls, "Apply", self._apply_entries).pack(side="left")
-        button(controls, "Whole video", self._reset_range).pack(side="left", padx=8)
+        button(controls, "Apply", self._apply_entries).grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        button(controls, "Whole video", self._reset_range).grid(
+            row=1, column=2, columnspan=2, sticky="w", pady=(10, 0), padx=(0, 0))
         self.length_label = label(controls, "", weight="bold")
-        self.length_label.pack(side="left", padx=12)
+        self.length_label.grid(row=2, column=0, columnspan=4, sticky="w", pady=(8, 0))
 
         previews = ctk.CTkFrame(editor, fg_color="transparent")
-        previews.pack(fill="x", padx=18, pady=(14, 18))
+        previews.grid(row=3, column=0, sticky="nsew", padx=18, pady=(14, 18))
         previews.grid_columnconfigure((0, 1), weight=1, uniform="preview")
+        previews.grid_rowconfigure(0, weight=1)
+        previews.bind("<Configure>", lambda _e: self._refit_previews())
         self.start_preview = self._preview_box(previews, 0, "Clip starts at")
         self.end_preview = self._preview_box(previews, 1, "Clip ends at")
 
     def _preview_box(self, parent, col, caption):
-        box = ctk.CTkFrame(parent, fg_color=theme.FIELD, corner_radius=theme.radius(12),
-                           height=theme.px(240))
+        box = ctk.CTkFrame(parent, fg_color=theme.FIELD, corner_radius=theme.radius(12))
         box.grid(row=0, column=col, sticky="nsew", padx=(0, 8) if col == 0 else (8, 0))
-        # The box keeps its own size. Otherwise the picture inside it sets the box size, which sets the
-        # picture size again, and the layout grows each time the page is redrawn.
+        # The box keeps the size the layout gives it. Otherwise the picture inside sets the box size,
+        # which sets the picture size again, and the layout grows each time it is redrawn.
         box.pack_propagate(False)
         muted(box, caption).pack(anchor="w", padx=14, pady=(10, 6))
         view = ctk.CTkLabel(box, text="No video selected", font=theme.font(14), text_color=theme.MUTED)
