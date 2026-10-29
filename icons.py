@@ -1,6 +1,6 @@
 """Line icons drawn with Pillow, so no image files need to be bundled with the app."""
-import customtkinter as ctk
 from PIL import Image, ImageDraw
+from PySide6.QtGui import QIcon, QImage, QPixmap
 
 import theme
 
@@ -57,15 +57,8 @@ def _draw(name, colour, px):
         line([(3, 12), (16, 12)])
         line([(12, 8), (16, 12), (12, 16)])
         line([(4, 19.5), (20, 19.5)])
-    elif name == "select":
-        box(3, 3, 21, 21, 4)
-        line([(7, 12.5), (10.5, 16), (17, 9)])
     elif name == "folder":
         folder()
-    elif name == "log":
-        for y in (8, 12, 16):
-            dot(5, y, 1.3)
-            line([(9, y), (19, y)])
     elif name == "brush":
         line([(4, 20), (9, 15)])
         solid([(9, 13), (14, 8), (17, 11), (12, 16)])
@@ -80,10 +73,12 @@ def _draw(name, colour, px):
 _cache = {}
 
 
-def icon(name, colour=theme.TEXT, size=20):
-    """A CTkImage of the named icon, ready for a button or label."""
+def icon(name, colour=None, size=20):
+    """A QIcon of the named icon, drawn at the given size in pixels."""
+    colour = colour or theme.TEXT
     key = (name, colour, size)
     if key not in _cache:
-        img = _draw(name, colour, size * SUPERSAMPLE).resize((size, size), Image.LANCZOS)
-        _cache[key] = ctk.CTkImage(light_image=img, dark_image=img, size=(size, size))
+        img = _draw(name, colour, size * SUPERSAMPLE).resize((size, size), Image.LANCZOS).convert("RGBA")
+        qimg = QImage(img.tobytes("raw", "RGBA"), size, size, 4 * size, QImage.Format_RGBA8888).copy()
+        _cache[key] = QIcon(QPixmap.fromImage(qimg))
     return _cache[key]

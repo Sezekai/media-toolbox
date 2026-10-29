@@ -1,20 +1,20 @@
-"""GIF maker page: pick videos, optionally set a timeframe for each one, then convert them."""
+"""GIF maker page: pick videos, optionally set a timeframe for each, then convert them."""
 import threading
-import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox
 
-import customtkinter as ctk
-from PIL import Image
+from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QLabel, QMessageBox,
+                               QSizePolicy, QSplitter, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 import gif_maker
 import icons
 import theme
 from media_utils import find_videos, probe_duration
-from theme import button, card, entry, label, muted
-from widgets import Page, _pick, tree_in_card
+from widgets import Page, button, card, folder_row, label, line_edit, make_tree, muted
 
 MIN_CLIP = 0.1  # shortest allowed timeframe, in seconds
+ITEM_PATH = Qt.UserRole
 
 
 def fmt_time(seconds):
@@ -31,72 +31,129 @@ def parse_time(text):
     return float(text)
 
 
-class Timeline(tk.Canvas):
-    """A bar showing the whole video, with the GIF's start and end handles on it. Stretches to the window width."""
-    PAD = 16
+def to_pixmap(pil_image):
+    img = pil_image.convert("RGBA")
+    qimg = QImage(img.tobytes("raw", "RGBA"), img.width, img.height, 4 * img.width,
+                  QImage.Format_RGBA8888).copy()
+    return QPixmap.fromImage(qimg)
 
-    def __init__(self, master, on_drag, on_release):
-        super().__init__(master, height=theme.px(72), background=theme.FIELD, highlightthickness=0)
-        self.on_drag = on_drag
-        self.on_release = on_release
+
+class Timeline(QWidget):
+    """A bar showing the whole video, with the GIF's start and end handles on it. Stretches to the width."""
+    changed = Signal(float, float)    # while a handle is dragged
+    released = Signal(float, float)   # when the handle is let go
+
+    def __init__(self):
+        super().__init__()
         self.duration = 0.0
         self.start = 0.0
         self.end = 0.0
         self._drag = None
-        self.bind("<Configure>", lambda _e: self.redraw())
-        self.bind("<ButtonPress-1>", self._press)
-        self.bind("<B1-Motion>", self._motion)
-        self.bind("<ButtonRelease-1>", self._release)
+        self.setMinimumHeight(theme.px(72))
+        self.setMinimumWidth(theme.px(200))
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def set_range(self, duration, start, end):
         self.duration, self.start, self.end = duration, start, end
-        self.redraw()
+        self.update()
 
     def _x(self, t):
-        span = self.winfo_width() - 2 * self.PAD
-        return self.PAD + (t / self.duration) * span if self.duration else self.PAD
+        pad = theme.px(14)
+        span = max(1, self.width() - 2 * pad)
+        return pad + (t / self.duration) * span if self.duration else pad
 
     def _t(self, x):
-        span = max(1, self.winfo_width() - 2 * self.PAD)
-        return min(max((x - self.PAD) / span * self.duration, 0.0), self.duration)
+        pad = theme.px(14)
+        span = max(1, self.width() - 2 * pad)
+        return min(max((x - pad) / span * self.duration, 0.0), self.duration)
 
-    def redraw(self):
-        self.delete("all")
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        pad = theme.px(14)
+        caption_h = theme.text_px("caption") + theme.px(10)
+        top = theme.px(12)
+        bottom = h - caption_h
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(theme.TRACK))
+        p.drawRoundedRect(QRectF(pad, top, w - 2 * pad, bottom - top), theme.px(6), theme.px(6))
+        if self.duration:
+            xs, xe = self._x(self.start), self._x(self.end)
+            p.setBrush(QColor(theme.GREEN))
+            p.drawRoundedRect(QRectF(xs, top, max(1.0, xe - xs), bottom - top), theme.px(6), theme.px(6))
+            p.setPen(QPen(QColor("#ffffff"), max(2, theme.px(3))))
+            for x in (xs, xe):
+                p.drawLine(int(x), top - theme.px(5), int(x), bottom + theme.px(5))
+        p.setPen(QColor(theme.MUTED))
+        p.setFont(theme.font("caption"))
+        caption = QRectF(pad, bottom + theme.px(4), w - 2 * pad, caption_h)
+        p.drawText(caption, Qt.AlignLeft | Qt.AlignVCenter, "0:00.0")
+        p.drawText(caption, Qt.AlignRight | Qt.AlignVCenter, fmt_time(self.duration))
+        p.end()
+
+    def mousePressEvent(self, event):
         if not self.duration:
             return
-        w, h = self.winfo_width(), self.winfo_height()
-        top, bottom = 16, h - 18
-        self.create_rectangle(self.PAD, top, w - self.PAD, bottom, fill=theme.TRACK, outline="")
         xs, xe = self._x(self.start), self._x(self.end)
-        self.create_rectangle(xs, top, xe, bottom, fill=theme.GREEN, outline="")
-        for x in (xs, xe):
-            self.create_line(x, top - 6, x, bottom + 6, fill="#ffffff", width=3)
-        self.create_text(self.PAD, h - 2, text="0:00.0", anchor="sw", fill=theme.MUTED, font=(theme.FAMILY, 10))
-        self.create_text(w - self.PAD, h - 2, text=fmt_time(self.duration), anchor="se",
-                         fill=theme.MUTED, font=(theme.FAMILY, 10))
+        x = event.position().x()
+        self._drag = "start" if abs(x - xs) <= abs(x - xe) else "end"
+        self._move(x)
 
-    def _press(self, event):
-        if not self.duration:
-            return
-        xs, xe = self._x(self.start), self._x(self.end)
-        self._drag = "start" if abs(event.x - xs) <= abs(event.x - xe) else "end"
-        self._motion(event)
+    def mouseMoveEvent(self, event):
+        if self._drag:
+            self._move(event.position().x())
 
-    def _motion(self, event):
-        if not self._drag:
-            return
-        t = self._t(event.x)
+    def mouseReleaseEvent(self, _event):
+        if self._drag:
+            self._drag = None
+            self.released.emit(self.start, self.end)
+
+    def _move(self, x):
+        t = self._t(x)
         if self._drag == "start":
             self.start = max(0.0, min(t, self.end - MIN_CLIP))
         else:
             self.end = min(self.duration, max(t, self.start + MIN_CLIP))
-        self.redraw()
-        self.on_drag(self.start, self.end)
+        self.update()
+        self.changed.emit(self.start, self.end)
 
-    def _release(self, _event):
-        if self._drag:
-            self._drag = None
-            self.on_release(self.start, self.end)
+
+class Preview(QLabel):
+    """Shows a frame scaled to fit the box, and rescales it when the box is resized."""
+
+    def __init__(self):
+        super().__init__("No video selected")
+        self.setAlignment(Qt.AlignCenter)
+        self.setProperty("role", "muted")
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        self._source = None
+
+    def minimumSizeHint(self):
+        return QSize(1, 1)  # the picture must never push the layout bigger
+
+    def sizeHint(self):
+        return QSize(theme.px(200), theme.px(150))
+
+    def show_frame(self, pixmap):
+        self._source = pixmap
+        self._refresh()
+
+    def show_message(self, text):
+        self._source = None
+        self.clear()
+        self.setText(text)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._refresh()
+
+    def _refresh(self):
+        if self._source is None:
+            return
+        room = self.size() - QSize(theme.px(12), theme.px(12))
+        self.setPixmap(self._source.scaled(max(1, room.width()), max(1, room.height()),
+                                           Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
 
 class GifTab(Page):
@@ -104,176 +161,180 @@ class GifTab(Page):
     subtitle = "Turn videos into GIFs. Pick a timeframe for any video, or leave it to convert the whole thing."
 
     def build(self):
-        self.folder = tk.StringVar()
-        self.recursive = tk.IntVar(value=1)
-        self.fps = tk.StringVar(value="12")
-        self.width = tk.StringVar(value="480")
-        self.quality = tk.StringVar(value="Standard")
-        self.out_dir = tk.StringVar()
-        self.start_text = tk.StringVar()
-        self.end_text = tk.StringVar()
-        self.durations = {}  # video path (str) -> seconds
-        self.ranges = {}     # video path (str) -> (start, end), only once a timeframe is set
-        self.current = None  # path shown in the timeframe editor
-        self._preview_after = None
+        self.folder = line_edit(placeholder="Choose a folder")
+        self.recursive = QCheckBox("Include subfolders")
+        self.recursive.setChecked(True)
+        self.fps = line_edit("12", width=70)
+        self.width_px = line_edit("480", width=80)
+        self.quality = QComboBox()
+        self.quality.addItems(list(gif_maker.QUALITY_PRESETS))
+        self.out_dir = line_edit(placeholder="Empty = beside each video")
+        self.durations = {}   # video path -> seconds
+        self.ranges = {}      # video path -> (start, end), only once a timeframe is set
+        self.items = {}       # video path -> list row
+        self.current = None   # path shown in the timeframe editor
         self._preview_id = 0
-        self._refit_after = None
-        self._frames = {"start": None, "end": None}  # full-size preview frames (PIL)
-        self._images = []    # keep references so the preview images aren't dropped
-        self._blank = ctk.CTkImage(light_image=Image.new("RGBA", (1, 1), (0, 0, 0, 0)),
-                                   dark_image=Image.new("RGBA", (1, 1), (0, 0, 0, 0)), size=(1, 1))
-        self.scroll.add_resize_callback(self._refit_previews)
-        # Everything fits the window. The page only scrolls when the window is smaller than this.
-        self.scroll.set_minimum(theme.px(980), theme.px(620))
-        self.body.grid_rowconfigure(0, weight=1)
-        self.body.grid_columnconfigure(0, weight=1)
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(250)
+        self._preview_timer.timeout.connect(self._request_previews)
 
-        def splitter(parent, orient):
-            return tk.PanedWindow(parent, orient=orient, sashwidth=theme.px(10), sashrelief="flat", bd=0,
-                                  background=theme.APP_BG, opaqueresize=True)
+        split = QSplitter(Qt.Horizontal)
+        split.setChildrenCollapsible(False)
+        left = QWidget()
+        left.setMinimumWidth(theme.px(440))
+        left_col = QVBoxLayout(left)
+        left_col.setContentsMargins(0, 0, theme.px(8), 0)
+        left_col.setSpacing(theme.px(12))
+        right = QWidget()
+        right.setMinimumWidth(theme.px(420))
+        right_col = QVBoxLayout(right)
+        right_col.setContentsMargins(theme.px(8), 0, 0, 0)
+        split.addWidget(left)
+        split.addWidget(right)
+        split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 1)
+        split.setSizes([theme.px(520), theme.px(620)])
+        self.body.addWidget(split, 1)
 
-        # Left and right halves, with a draggable divider between them
-        split = splitter(self.body, "horizontal")
-        split.grid(row=0, column=0, sticky="nsew")
-        left = ctk.CTkFrame(split, fg_color="transparent")
-        right = ctk.CTkFrame(split, fg_color="transparent")
-        split.add(left, minsize=theme.px(460), stretch="always")
-        split.add(right, minsize=theme.px(380), stretch="always")
+        # Left: settings, actions, then the video list (which takes the remaining height)
+        setup = card()
+        grid = QGridLayout(setup)
+        grid.setContentsMargins(theme.px(16), theme.px(14), theme.px(16), theme.px(14))
+        grid.setHorizontalSpacing(theme.px(10))
+        grid.setVerticalSpacing(theme.px(10))
+        grid.setColumnStretch(1, 1)
+        folder_row(grid, 0, "Video folder", self.folder, "Choose the video folder")
+        load_row = QHBoxLayout()
+        load_row.addWidget(self.recursive)
+        load_row.addSpacing(theme.px(16))
+        load_btn = button("Load videos", "primary", icons.icon("gif", "#ffffff", 18))
+        load_btn.clicked.connect(self.load_videos)
+        load_row.addWidget(load_btn)
+        load_row.addStretch(1)
+        grid.addLayout(load_row, 1, 0, 1, 3)
+        grid.addWidget(muted("FPS"), 2, 0)
+        grid.addWidget(self.fps, 2, 1)
+        width_row = QHBoxLayout()
+        width_row.addWidget(muted("Width (px)"))
+        width_row.addWidget(self.width_px)
+        width_row.addStretch(1)
+        grid.addLayout(width_row, 2, 2)
+        grid.addWidget(muted("Quality"), 3, 0)
+        grid.addWidget(self.quality, 3, 1)
+        folder_row(grid, 4, "Save GIFs to", self.out_dir, "Save GIFs to...")
+        grid.addWidget(label("Higher quality = better colours, bigger file, slower", "caption", wrap=True), 5, 0, 1, 3)
+        left_col.addWidget(setup)
 
-        # Left: settings and actions take their natural height; the video list fills the rest
-        left.grid_columnconfigure(0, weight=1)
-        left.grid_rowconfigure(1, weight=1)
-        top = ctk.CTkFrame(left, fg_color="transparent")
-        top.grid(row=0, column=0, sticky="ew", padx=(0, 8))
-        top.grid_columnconfigure(0, weight=1)
-        bottom = ctk.CTkFrame(left, fg_color="transparent")
-        bottom.grid(row=1, column=0, sticky="nsew", padx=(0, 8), pady=(10, 0))
+        actions = QGridLayout()
+        actions.setHorizontalSpacing(theme.px(8))
+        actions.setVerticalSpacing(theme.px(8))
+        actions.addWidget(self._button("Select all", self.select_all), 0, 0)
+        actions.addWidget(self._button("Clear timeframes", self.clear_selected_ranges), 0, 1)
+        actions.addWidget(self._button("Convert selected", lambda: self.convert(True), "primary",
+                                       icons.icon("gif", "#ffffff", 18)), 1, 0)
+        actions.addWidget(self._button("Convert all", lambda: self.convert(False), "primary"), 1, 1)
+        left_col.addLayout(actions)
 
-        setup = card(top)
-        setup.grid(row=0, column=0, sticky="ew")
-        setup.grid_columnconfigure(1, weight=1)
-        # Row 1: video folder
-        label(setup, "Video folder").grid(row=0, column=0, sticky="w", padx=(16, 10), pady=(12, 6))
-        entry(setup, self.folder).grid(row=0, column=1, sticky="ew", padx=4, pady=(12, 6))
-        button(setup, "Browse", lambda: _pick(self.folder, "Choose the video folder"), width=100).grid(
-            row=0, column=2, padx=(4, 16), pady=(12, 6))
-        # Row 2: subfolders switch and load button
-        load = ctk.CTkFrame(setup, fg_color="transparent")
-        load.grid(row=1, column=0, columnspan=3, sticky="w", padx=16, pady=(0, 6))
-        theme.switch(load, "Include subfolders", self.recursive).pack(side="left", padx=(0, 20))
-        button(load, "Load videos", self.load_videos, "primary", icon=icons.icon("gif", "#ffffff", 18)).pack(side="left")
-        # Row 3: FPS, width and quality on one line
-        settings = ctk.CTkFrame(setup, fg_color="transparent")
-        settings.grid(row=2, column=0, columnspan=3, sticky="ew", padx=16, pady=(0, 6))
-        settings.grid_columnconfigure(6, weight=1)
-        muted(settings, "FPS").grid(row=0, column=0, sticky="w")
-        entry(settings, self.fps, width=64).grid(row=0, column=1, sticky="w", padx=(6, 14))
-        muted(settings, "Width (px)").grid(row=0, column=2, sticky="w")
-        entry(settings, self.width, width=76).grid(row=0, column=3, sticky="w", padx=(6, 14))
-        muted(settings, "Quality").grid(row=0, column=4, sticky="w")
-        theme.combo(settings, list(gif_maker.QUALITY_PRESETS), self.quality, width=140).grid(
-            row=0, column=5, sticky="w", padx=(6, 12))
-        muted(settings, "Higher quality = better colours, bigger file, slower", size=12).grid(
-            row=0, column=6, sticky="ew")
-        # Row 4: output folder (empty = beside each video)
-        label(setup, "Save GIFs to").grid(row=3, column=0, sticky="w", padx=(16, 10), pady=(0, 12))
-        out = entry(setup, self.out_dir, placeholder_text="Empty = save each GIF beside its video")
-        out.grid(row=3, column=1, sticky="ew", padx=4, pady=(0, 12))
-        button(setup, "Browse", lambda: _pick(self.out_dir, "Save GIFs to..."), width=100).grid(
-            row=3, column=2, padx=(4, 16), pady=(0, 12))
+        list_card = card()
+        list_layout = QVBoxLayout(list_card)
+        list_layout.setContentsMargins(theme.px(8), theme.px(8), theme.px(8), theme.px(8))
+        self.tree = make_tree(("File", "Length", "Timeframe"), (200, 80, 130))
+        self.tree.currentItemChanged.connect(self._on_current)
+        list_layout.addWidget(self.tree)
+        left_col.addWidget(list_card, 1)
 
-        actions = ctk.CTkFrame(top, fg_color="transparent")
-        actions.grid(row=1, column=0, sticky="ew", pady=(10, 0))
-        actions.grid_columnconfigure((0, 1, 2, 3), weight=1, uniform="act")
-        button(actions, "Select all", self.select_all).grid(row=0, column=0, sticky="ew", padx=(0, 4))
-        button(actions, "Clear timeframes", self.clear_selected_ranges).grid(row=0, column=1, sticky="ew", padx=4)
-        button(actions, "Convert selected", lambda: self.convert(selected_only=True), "primary",
-               icon=icons.icon("gif", "#ffffff", 18)).grid(row=0, column=2, sticky="ew", padx=4)
-        button(actions, "Convert all", lambda: self.convert(selected_only=False), "primary").grid(
-            row=0, column=3, sticky="ew", padx=(4, 0))
+        # Right: the timeframe editor, whose previews take the remaining height
+        editor = card()
+        ev = QVBoxLayout(editor)
+        ev.setContentsMargins(theme.px(16), theme.px(14), theme.px(16), theme.px(16))
+        ev.setSpacing(theme.px(10))
+        head = QHBoxLayout()
+        head.addWidget(label("Timeframe", "heading"))
+        head.addWidget(muted("   Click a video in the list to set its clip"))
+        head.addStretch(1)
+        ev.addLayout(head)
 
-        bottom.grid_rowconfigure(0, weight=1)
-        bottom.grid_columnconfigure(0, weight=1)
-        list_card = card(bottom)
-        list_card.grid(row=0, column=0, sticky="nsew")
-        self.tree = tree_in_card(list_card, ("file", "length", "range"),
-                                 ("File", "Length", "Timeframe"), (300, 100, 150))
-        self.tree.bind("<<TreeviewSelect>>", self._on_select)
+        self.timeline = Timeline()
+        self.timeline.changed.connect(self._on_drag)
+        self.timeline.released.connect(self._on_release)
+        ev.addWidget(self.timeline)
 
-        # Right: the timeframe editor, which fills the height of the page
-        right.grid_rowconfigure(0, weight=1)
-        right.grid_columnconfigure(0, weight=1)
-        editor = card(right)
-        editor.grid(row=0, column=0, sticky="nsew", padx=(8, 0))
-        editor.grid_columnconfigure(0, weight=1)
-        editor.grid_rowconfigure(3, weight=1)
-        head = ctk.CTkFrame(editor, fg_color="transparent")
-        head.grid(row=0, column=0, sticky="ew", padx=18, pady=(14, 8))
-        label(head, "Timeframe", size=16, weight="bold").pack(side="left")
-        muted(head, "   Click a video in the list to set its clip").pack(side="left")
+        controls = QGridLayout()
+        controls.setHorizontalSpacing(theme.px(8))
+        controls.setVerticalSpacing(theme.px(8))
+        self.start_edit = line_edit(width=110)
+        self.end_edit = line_edit(width=110)
+        self.start_edit.returnPressed.connect(self._apply_entries)
+        self.end_edit.returnPressed.connect(self._apply_entries)
+        controls.addWidget(muted("Start"), 0, 0)
+        controls.addWidget(self.start_edit, 0, 1)
+        controls.addWidget(muted("End"), 0, 2)
+        controls.addWidget(self.end_edit, 0, 3)
+        apply_btn = button("Apply")
+        apply_btn.clicked.connect(self._apply_entries)
+        whole_btn = button("Whole video")
+        whole_btn.clicked.connect(self._reset_range)
+        controls.addWidget(apply_btn, 1, 0, 1, 2)
+        controls.addWidget(whole_btn, 1, 2, 1, 2)
+        self.length_label = label("", "heading")
+        controls.addWidget(self.length_label, 2, 0, 1, 4)
+        controls.setColumnStretch(4, 1)
+        ev.addLayout(controls)
 
-        self.timeline = Timeline(editor, on_drag=self._on_drag, on_release=self._on_release)
-        self.timeline.grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 12))
+        previews = QGridLayout()
+        previews.setHorizontalSpacing(theme.px(12))
+        previews.setVerticalSpacing(0)
+        self.start_view = Preview()
+        self.end_view = Preview()
+        previews.addWidget(self._preview_box("Clip starts at", self.start_view), 0, 0)
+        previews.addWidget(self._preview_box("Clip ends at", self.end_view), 0, 1)
+        ev.addLayout(previews, 1)
+        right_col.addWidget(editor, 1)
 
-        controls = ctk.CTkFrame(editor, fg_color="transparent")
-        controls.grid(row=2, column=0, sticky="ew", padx=18)
-        muted(controls, "Start").grid(row=0, column=0, sticky="w")
-        start_entry = entry(controls, self.start_text, width=110)
-        start_entry.grid(row=0, column=1, sticky="w", padx=(8, 16))
-        start_entry.bind("<Return>", lambda _e: self._apply_entries())
-        muted(controls, "End").grid(row=0, column=2, sticky="w")
-        end_entry = entry(controls, self.end_text, width=110)
-        end_entry.grid(row=0, column=3, sticky="w", padx=(8, 0))
-        end_entry.bind("<Return>", lambda _e: self._apply_entries())
-        button(controls, "Apply", self._apply_entries).grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 0))
-        button(controls, "Whole video", self._reset_range).grid(
-            row=1, column=2, columnspan=2, sticky="w", pady=(10, 0), padx=(0, 0))
-        self.length_label = label(controls, "", weight="bold")
-        self.length_label.grid(row=2, column=0, columnspan=4, sticky="w", pady=(8, 0))
+    def _button(self, text, command, kind="secondary", icon=None):
+        b = button(text, kind, icon)
+        b.clicked.connect(command)
+        return b
 
-        previews = ctk.CTkFrame(editor, fg_color="transparent")
-        previews.grid(row=3, column=0, sticky="nsew", padx=18, pady=(14, 18))
-        previews.grid_columnconfigure((0, 1), weight=1, uniform="preview")
-        previews.grid_rowconfigure(0, weight=1)
-        previews.bind("<Configure>", lambda _e: self._refit_previews())
-        self.start_preview = self._preview_box(previews, 0, "Clip starts at")
-        self.end_preview = self._preview_box(previews, 1, "Clip ends at")
-
-    def _preview_box(self, parent, col, caption):
-        box = ctk.CTkFrame(parent, fg_color=theme.FIELD, corner_radius=theme.radius(12))
-        box.grid(row=0, column=col, sticky="nsew", padx=(0, 8) if col == 0 else (8, 0))
-        # The box keeps the size the layout gives it. Otherwise the picture inside sets the box size,
-        # which sets the picture size again, and the layout grows each time it is redrawn.
-        box.pack_propagate(False)
-        muted(box, caption).pack(anchor="w", padx=14, pady=(10, 6))
-        view = ctk.CTkLabel(box, text="No video selected", font=theme.font(14), text_color=theme.MUTED)
-        view.pack(fill="both", expand=True, padx=14, pady=(0, 14))
-        return view
+    def _preview_box(self, caption, view):
+        box = card()
+        box.setObjectName("preview")
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(theme.px(14), theme.px(10), theme.px(14), theme.px(14))
+        layout.addWidget(label(caption, "caption"))
+        layout.addWidget(view, 1)
+        return box
 
     # ---------- loading ----------
     def load_videos(self):
-        folder = self.folder.get().strip()
+        folder = self.folder.text().strip()
         if not Path(folder).is_dir():
-            messagebox.showerror("Folder not found", "Choose a valid video folder.")
+            QMessageBox.critical(self, "Folder not found", "Choose a valid video folder.")
             return
-        videos = find_videos(folder, bool(self.recursive.get()))
-        self.tree.delete(*self.tree.get_children())
-        self.durations.clear()
-        self.ranges.clear()
+        videos = find_videos(folder, self.recursive.isChecked())
+        self.tree.clear()
+        self.items = {}
+        self.durations = {}
+        self.ranges = {}
         self.current = None
         for path in videos:
-            self.tree.insert("", "end", iid=str(path),
-                             values=(str(path.relative_to(folder)), "", "whole video"))
+            row = QTreeWidgetItem([str(path.relative_to(folder)), "", "whole video"])
+            row.setData(0, ITEM_PATH, str(path))
+            self.tree.addTopLevelItem(row)
+            self.items[str(path)] = row
         self.app.log(f"Loaded {len(videos)} video(s).")
         self._clear_editor()
 
     def select_all(self):
-        self.tree.selection_set(self.tree.get_children())
+        self.tree.selectAll()
 
     # ---------- selecting a video and editing its timeframe ----------
-    def _on_select(self, _event):
-        iid = self.tree.focus()
-        if not iid or iid == self.current:
+    def _on_current(self, current, _previous):
+        if current is None:
+            return
+        iid = current.data(0, ITEM_PATH)
+        if iid == self.current:
             return
         self.current = iid
         self._ensure_duration(iid, lambda: self._show_editor(iid))
@@ -291,7 +352,8 @@ class GifTab(Page):
                     self.app.log(f"Could not read the length of {Path(iid).name}")
                     return
                 self.durations[iid] = seconds
-                self.tree.set(iid, "length", fmt_time(seconds))
+                if iid in self.items:
+                    self.items[iid].setText(1, fmt_time(seconds))
                 then()
             self.app.on_main(done)
 
@@ -309,36 +371,35 @@ class GifTab(Page):
     def _clear_editor(self):
         self.current = None
         self.timeline.set_range(0.0, 0.0, 0.0)
-        self.start_text.set("")
-        self.end_text.set("")
-        self.length_label.configure(text="")
-        self._frames = {"start": None, "end": None}
-        self._reset_preview(self.start_preview)
-        self._reset_preview(self.end_preview)
-
-    def _reset_preview(self, view):
-        view.configure(image=self._blank, text="No video selected")
+        self.start_edit.setText("")
+        self.end_edit.setText("")
+        self.length_label.setText("")
+        self.start_view.show_message("No video selected")
+        self.end_view.show_message("No video selected")
 
     def _update_labels(self, start, end):
-        self.start_text.set(fmt_time(start))
-        self.end_text.set(fmt_time(end))
-        self.length_label.configure(text=f"Length: {end - start:.1f}s")
+        self.start_edit.setText(fmt_time(start))
+        self.end_edit.setText(fmt_time(end))
+        self.length_label.setText(f"Length: {end - start:.1f}s")
 
     def _store(self, start, end):
         """Remember the timeframe for the current video (or clear it if it covers the whole video)."""
         iid = self.current
+        if iid is None or iid not in self.items:
+            return
         duration = self.durations[iid]
+        row = self.items[iid]
         if start <= 0.05 and end >= duration - 0.05:
             self.ranges.pop(iid, None)
-            self.tree.set(iid, "range", "whole video")
+            row.setText(2, "whole video")
         else:
             self.ranges[iid] = (start, end)
-            self.tree.set(iid, "range", f"{fmt_time(start)} to {fmt_time(end)}")
+            row.setText(2, f"{fmt_time(start)} to {fmt_time(end)}")
 
     def _on_drag(self, start, end):
         self._update_labels(start, end)
         self._store(start, end)
-        self._schedule_previews()
+        self._preview_timer.start()
 
     def _on_release(self, start, end):
         self._store(start, end)
@@ -350,15 +411,15 @@ class GifTab(Page):
             return
         duration = self.durations[iid]
         try:
-            start = parse_time(self.start_text.get())
-            end = parse_time(self.end_text.get())
+            start = parse_time(self.start_edit.text())
+            end = parse_time(self.end_edit.text())
         except ValueError:
-            messagebox.showerror("Invalid time", "Enter times like 12.5 or 1:23.5.")
+            QMessageBox.critical(self, "Invalid time", "Enter times like 12.5 or 1:23.5.")
             return
         start = max(0.0, min(start, duration))
         end = max(0.0, min(end, duration))
         if end - start < MIN_CLIP:
-            messagebox.showerror("Invalid timeframe", f"The end must be at least {MIN_CLIP} s after the start.")
+            QMessageBox.critical(self, "Invalid timeframe", f"The end must be at least {MIN_CLIP} s after the start.")
             return
         self.timeline.set_range(duration, start, end)
         self._update_labels(start, end)
@@ -370,24 +431,20 @@ class GifTab(Page):
         if not iid:
             return
         self.ranges.pop(iid, None)
-        self.tree.set(iid, "range", "whole video")
+        self.items[iid].setText(2, "whole video")
         self._show_editor(iid)
 
     def clear_selected_ranges(self):
-        for iid in self.tree.selection():
+        selected = self.tree.selectedItems()
+        for row in selected:
+            iid = row.data(0, ITEM_PATH)
             self.ranges.pop(iid, None)
-            self.tree.set(iid, "range", "whole video")
-        if self.current in self.tree.selection():
+            row.setText(2, "whole video")
+        if self.current and any(r.data(0, ITEM_PATH) == self.current for r in selected):
             self._show_editor(self.current)
 
     # ---------- start and end frame previews ----------
-    def _schedule_previews(self):
-        if self._preview_after:
-            self.after_cancel(self._preview_after)
-        self._preview_after = self.after(250, self._request_previews)
-
     def _request_previews(self):
-        self._preview_after = None
         iid = self.current
         if not iid:
             return
@@ -405,55 +462,35 @@ class GifTab(Page):
     def _show_previews(self, token, first, last):
         if token != self._preview_id:  # a newer preview has been requested since
             return
-        self._frames = {"start": first, "end": last}
-        for view, img in ((self.start_preview, first), (self.end_preview, last)):
+        for view, img in ((self.start_view, first), (self.end_view, last)):
             if img is None:
-                view.configure(image=self._blank, text="Could not read this frame")
-        self._render_previews()
-
-    def _refit_previews(self):
-        """Called when the window is resized, so the preview images fill their boxes again."""
-        if self._refit_after:
-            self.after_cancel(self._refit_after)
-        self._refit_after = self.after(120, self._render_previews)
-
-    def _render_previews(self):
-        self._refit_after = None
-        for view, key in ((self.start_preview, "start"), (self.end_preview, "end")):
-            img = self._frames.get(key)
-            if img is None:
-                continue
-            box_w = max(60, view.winfo_width() - 16)
-            box_h = max(60, view.winfo_height() - 16)
-            scale = min(box_w / img.width, box_h / img.height)
-            size = (max(1, int(img.width * scale)), max(1, int(img.height * scale)))
-            resized = img.resize(size, Image.LANCZOS)
-            photo = ctk.CTkImage(light_image=resized, dark_image=resized, size=size)
-            self._images.append(photo)
-            self._images = self._images[-6:]
-            view.configure(image=photo, text="")
+                view.show_message("Could not read this frame")
+            else:
+                view.show_frame(to_pixmap(img))
 
     # ---------- converting ----------
     def convert(self, selected_only):
-        iids = self.tree.selection() if selected_only else self.tree.get_children()
-        if not iids:
-            messagebox.showinfo("Nothing selected", "Select one or more videos first, or use Convert all.")
+        rows = self.tree.selectedItems() if selected_only else [
+            self.tree.topLevelItem(i) for i in range(self.tree.topLevelItemCount())]
+        if not rows:
+            QMessageBox.information(self, "Nothing selected", "Select one or more videos first, or use Convert all.")
             return
         try:
-            fps = int(self.fps.get())
-            width = int(self.width.get())
+            fps = int(self.fps.text())
+            width = int(self.width_px.text())
         except ValueError:
-            messagebox.showerror("Invalid settings", "FPS and width must be whole numbers.")
+            QMessageBox.critical(self, "Invalid settings", "FPS and width must be whole numbers.")
             return
         if not (1 <= fps <= 60) or not (64 <= width <= 1920):
-            messagebox.showerror("Invalid settings", "FPS must be 1 to 60, and width 64 to 1920 pixels.")
+            QMessageBox.critical(self, "Invalid settings", "FPS must be 1 to 60, and width 64 to 1920 pixels.")
             return
-        out_dir = self.out_dir.get().strip() or None
+        out_dir = self.out_dir.text().strip() or None
         jobs = []
-        for iid in iids:
+        for row in rows:
+            iid = row.data(0, ITEM_PATH)
             if iid in self.ranges:
                 start, end = self.ranges[iid]
                 jobs.append((Path(iid), start, end))
             else:
                 jobs.append((Path(iid), 0.0, None))
-        self.app.run_background(gif_maker.convert_batch, jobs, fps, width, self.quality.get(), out_dir)
+        self.app.run_background(gif_maker.convert_batch, jobs, fps, width, self.quality.currentText(), out_dir)

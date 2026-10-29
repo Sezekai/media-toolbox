@@ -1,13 +1,14 @@
 """Media Toolbox: a sidebar app with one page per tool."""
-import queue
+import sys
 import threading
-import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox
-from tkinter import font as tkfont
 
-import customtkinter as ctk
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
+
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
+                               QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QSplitter,
+                               QStackedWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 import folder_tools
 import icons
@@ -16,9 +17,10 @@ import silent_videos
 import theme
 import webp_convert
 from gif_tab import GifTab
-from theme import button, card, muted
-from themes import (CORNER_STYLES, DEFAULT_THEME, ELEMENT_SIZES, FONT_CHOICES, PALETTES, TEXT_SIZES)
-from widgets import Page, tree_in_card
+from themes import CORNER_STYLES, DEFAULT_THEME, FONT_CHOICES, PALETTES, SIZE_CHOICES
+from widgets import Bridge, Page, button, card, folder_row, label, line_edit, make_tree, muted
+
+ITEM_PATH = Qt.UserRole
 
 
 def fmt_size(n):
@@ -39,82 +41,100 @@ class SilentPage(Page):
     subtitle = "Find videos with no audio, select the ones you want, then move them to another folder."
 
     def build(self):
-        self.folder = tk.StringVar()
-        self.recursive = tk.IntVar(value=1)
-        self.loud = tk.IntVar(value=0)
-        self.threshold = tk.StringVar(value="-60")
-        self.body.grid_rowconfigure(2, weight=1)
+        self.folder = line_edit(placeholder="Choose the video folder")
+        self.recursive = QCheckBox("Include subfolders")
+        self.recursive.setChecked(True)
+        self.loud = QCheckBox("Also check audio level (slower)")
+        self.threshold = line_edit("-60", width=90)
 
-        setup = card(self.body)
-        setup.grid(row=0, column=0, sticky="ew")
-        setup.grid_columnconfigure(1, weight=1)
-        self.folder_row(setup, 0, "Video folder", self.folder, "Choose the video folder")
-        opts = ctk.CTkFrame(setup, fg_color="transparent")
-        opts.grid(row=1, column=0, columnspan=3, sticky="w", padx=18, pady=(0, 16))
-        theme.switch(opts, "Include subfolders", self.recursive).pack(side="left", padx=(0, 26))
-        theme.switch(opts, "Also check audio level (slower)", self.loud).pack(side="left", padx=(0, 26))
-        muted(opts, "Threshold (dB)").pack(side="left", padx=(0, 8))
-        theme.entry(opts, self.threshold, width=90).pack(side="left")
+        setup = card()
+        grid = QGridLayout(setup)
+        grid.setContentsMargins(theme.px(16), theme.px(14), theme.px(16), theme.px(14))
+        grid.setHorizontalSpacing(theme.px(10))
+        grid.setVerticalSpacing(theme.px(10))
+        grid.setColumnStretch(1, 1)
+        folder_row(grid, 0, "Video folder", self.folder, "Choose the video folder")
+        options = QHBoxLayout()
+        options.addWidget(self.recursive)
+        options.addSpacing(theme.px(20))
+        options.addWidget(self.loud)
+        options.addSpacing(theme.px(20))
+        options.addWidget(muted("Threshold (dB)"))
+        options.addWidget(self.threshold)
+        options.addStretch(1)
+        grid.addLayout(options, 1, 0, 1, 3)
+        self.body.addWidget(setup)
 
-        actions = ctk.CTkFrame(self.body, fg_color="transparent")
-        actions.grid(row=1, column=0, sticky="ew", pady=12)
-        button(actions, "Scan", self.scan, "primary", icon=icons.icon("search", "#ffffff", 18)).pack(side="left")
-        button(actions, "Select all", self.select_all).pack(side="left", padx=8)
-        button(actions, "Move selected", self.move_selected, "primary",
-               icon=icons.icon("move", "#ffffff", 18)).pack(side="left")
-        self.summary = muted(actions, "", size=14)
-        self.summary.pack(side="left", padx=16)
+        actions = QHBoxLayout()
+        actions.setSpacing(theme.px(8))
+        scan = button("Scan", "primary", icons.icon("search", "#ffffff", 18))
+        scan.clicked.connect(self.scan)
+        select = button("Select all")
+        select.clicked.connect(lambda: self.tree.selectAll())
+        move = button("Move selected", "primary", icons.icon("move", "#ffffff", 18))
+        move.clicked.connect(self.move_selected)
+        actions.addWidget(scan)
+        actions.addWidget(select)
+        actions.addWidget(move)
+        self.summary = muted("")
+        actions.addSpacing(theme.px(10))
+        actions.addWidget(self.summary, 1)
+        self.body.addLayout(actions)
 
-        list_card = card(self.body)
-        list_card.grid(row=2, column=0, sticky="nsew", pady=(0, 8))
-        self.tree = tree_in_card(list_card, ("path", "reason"), ("File", "Reason"), (640, 300))
+        list_card = card()
+        layout = QVBoxLayout(list_card)
+        layout.setContentsMargins(theme.px(8), theme.px(8), theme.px(8), theme.px(8))
+        self.tree = make_tree(("File", "Reason"), (560, 260))
+        layout.addWidget(self.tree)
+        self.body.addWidget(list_card, 1)
 
     def scan(self):
-        folder = self.folder.get().strip()
+        folder = self.folder.text().strip()
         if not Path(folder).is_dir():
-            messagebox.showerror("Folder not found", "Choose a valid video folder.")
+            QMessageBox.critical(self, "Folder not found", "Choose a valid video folder.")
             return
         try:
-            threshold = float(self.threshold.get())
+            threshold = float(self.threshold.text())
         except ValueError:
-            messagebox.showerror("Invalid threshold", "Enter a number such as -60.")
+            QMessageBox.critical(self, "Invalid threshold", "Enter a number such as -60.")
             return
-        self.app.run_background(self._scan_worker, folder, bool(self.recursive.get()),
-                                bool(self.loud.get()), threshold)
+        self.app.run_background(self._scan_worker, folder, self.recursive.isChecked(),
+                                self.loud.isChecked(), threshold)
 
     def _scan_worker(self, folder, recursive, loud, threshold, log, progress):
         silent = silent_videos.scan_folder(folder, recursive, loud, threshold, log=log, progress=progress)
         self.app.on_main(lambda: self._show_results(silent))
 
     def _show_results(self, silent):
-        self.tree.delete(*self.tree.get_children())
+        self.tree.clear()
         for path, reason in silent:
-            self.tree.insert("", "end", iid=str(path), values=(str(path), reason))
-        self.summary.configure(text=f"{len(silent)} silent video(s). Select the ones to move.")
-
-    def select_all(self):
-        self.tree.selection_set(self.tree.get_children())
+            row = QTreeWidgetItem([str(path), reason])
+            row.setData(0, ITEM_PATH, str(path))
+            self.tree.addTopLevelItem(row)
+        self.summary.setText(f"{len(silent)} silent video(s). Select the ones to move.")
 
     def move_selected(self):
-        iids = self.tree.selection()
-        if not iids:
-            messagebox.showinfo("Nothing selected", "Select one or more videos in the list first (or click Select all).")
+        rows = self.tree.selectedItems()
+        if not rows:
+            QMessageBox.information(self, "Nothing selected",
+                                    "Select one or more videos in the list first (or click Select all).")
             return
-        dest = filedialog.askdirectory(title="Move selected videos to...")
+        dest = QFileDialog.getExistingDirectory(self, "Move selected videos to...")
         if not dest:
             return
-        self.app.run_background(self._move_worker, [Path(i) for i in iids], dest)
+        paths = [Path(r.data(0, ITEM_PATH)) for r in rows]
+        self.app.run_background(self._move_worker, paths, dest)
 
     def _move_worker(self, paths, dest, log, progress):
         moved = silent_videos.move_files(paths, dest, log=log, progress=progress)
-        moved_ids = [str(p) for p in moved]
+        moved_ids = {str(p) for p in moved}
         self.app.on_main(lambda: self._remove_rows(moved_ids))
 
-    def _remove_rows(self, iids):
-        for iid in iids:
-            if self.tree.exists(iid):
-                self.tree.delete(iid)
-        self.summary.configure(text=f"{len(self.tree.get_children())} silent video(s) remaining")
+    def _remove_rows(self, moved_ids):
+        for i in reversed(range(self.tree.topLevelItemCount())):
+            if self.tree.topLevelItem(i).data(0, ITEM_PATH) in moved_ids:
+                self.tree.takeTopLevelItem(i)
+        self.summary.setText(f"{self.tree.topLevelItemCount()} silent video(s) remaining")
 
 
 class ZipPage(Page):
@@ -122,25 +142,28 @@ class ZipPage(Page):
     subtitle = "Each subfolder becomes its own zip file, named after the folder."
 
     def build(self):
-        self.source = tk.StringVar()
-        self.dest = tk.StringVar()
-        setup = card(self.body)
-        setup.grid(row=0, column=0, sticky="ew")
-        setup.grid_columnconfigure(1, weight=1)
-        self.folder_row(setup, 0, "Parent folder", self.source, "Choose the parent folder")
-        self.folder_row(setup, 1, "Save zips to", self.dest, "Choose where to save the zips")
-        muted(setup, "Leave the destination empty to save the zips beside the folders.").grid(
-            row=2, column=1, sticky="w", padx=6, pady=(0, 16))
+        self.source = line_edit(placeholder="Choose the parent folder")
+        self.dest = line_edit(placeholder="Empty = save the zips beside the folders")
+        setup = card()
+        grid = QGridLayout(setup)
+        grid.setContentsMargins(theme.px(16), theme.px(14), theme.px(16), theme.px(14))
+        grid.setHorizontalSpacing(theme.px(10))
+        grid.setVerticalSpacing(theme.px(10))
+        grid.setColumnStretch(1, 1)
+        folder_row(grid, 0, "Parent folder", self.source, "Choose the parent folder")
+        folder_row(grid, 1, "Save zips to", self.dest, "Choose where to save the zips")
+        self.body.addWidget(setup)
 
-        actions = ctk.CTkFrame(self.body, fg_color="transparent")
-        actions.grid(row=1, column=0, sticky="w", pady=12)
-        button(actions, "Zip subfolders", self.run, "primary", icon=icons.icon("zip", "#ffffff", 18)).pack(side="left")
+        run = button("Zip subfolders", "primary", icons.icon("zip", "#ffffff", 18))
+        run.clicked.connect(self.run)
+        self.body.addWidget(run, 0, Qt.AlignLeft)
+        self.body.addStretch(1)
 
     def run(self):
-        src = self.source.get().strip()
-        dst = self.dest.get().strip() or None
+        src = self.source.text().strip()
+        dst = self.dest.text().strip() or None
         if not Path(src).is_dir():
-            messagebox.showerror("Folder not found", "Choose a valid parent folder.")
+            QMessageBox.critical(self, "Folder not found", "Choose a valid parent folder.")
             return
         self.app.run_background(folder_tools.zip_subfolders, src, dst)
 
@@ -162,63 +185,83 @@ class WebpPage(Page):
     }
 
     def build(self):
-        self.folder = tk.StringVar()
-        self.recursive = tk.IntVar(value=0)
-        self.delete_originals = tk.IntVar(value=0)
-        self.quality = tk.StringVar(value="95%")
+        self.folder = line_edit(placeholder="Choose a folder")
+        self.recursive = QCheckBox("Include subfolders")
+        self.recursive.toggled.connect(lambda _c: self.scan())
+        self.delete_originals = QCheckBox("Send originals to the Recycle Bin after converting")
+        self.quality = QComboBox()
+        self.quality.addItems([f"{q}%" for q in self.QUALITY_STEPS])
+        self.quality.setCurrentText("95%")
+        self.quality.currentTextChanged.connect(self._quality_changed)
         self.rows = []  # (Path, folder shown in the list, size in bytes)
-        self.body.grid_rowconfigure(2, weight=1)
 
-        setup = card(self.body)
-        setup.grid(row=0, column=0, sticky="ew")
-        setup.grid_columnconfigure(1, weight=1)
-        self.folder_row(setup, 0, "Folder", self.folder, "Choose the folder", on_change=self.scan)
-        opts = ctk.CTkFrame(setup, fg_color="transparent")
-        opts.grid(row=1, column=0, columnspan=3, sticky="w", padx=18, pady=(0, 16))
-        theme.switch(opts, "Include subfolders", self.recursive, command=self.scan).pack(side="left", padx=(0, 26))
-        theme.switch(opts, "Send originals to the Recycle Bin after converting",
-                     self.delete_originals).pack(side="left")
+        setup = card()
+        grid = QGridLayout(setup)
+        grid.setContentsMargins(theme.px(16), theme.px(14), theme.px(16), theme.px(14))
+        grid.setHorizontalSpacing(theme.px(10))
+        grid.setVerticalSpacing(theme.px(10))
+        grid.setColumnStretch(1, 1)
+        folder_row(grid, 0, "Folder", self.folder, "Choose the folder", on_change=self.scan)
+        options = QHBoxLayout()
+        options.addWidget(self.recursive)
+        options.addSpacing(theme.px(20))
+        options.addWidget(self.delete_originals)
+        options.addStretch(1)
+        grid.addLayout(options, 1, 0, 1, 3)
+        self.body.addWidget(setup)
 
-        quality_card = card(self.body)
-        quality_card.grid(row=1, column=0, sticky="ew", pady=(12, 0))
-        top = ctk.CTkFrame(quality_card, fg_color="transparent")
-        top.pack(fill="x", padx=18, pady=(14, 4))
-        theme.label(top, "JPG quality", size=16, weight="bold").pack(side="left")
-        values = [f"{q}%" for q in self.QUALITY_STEPS]
-        theme.combo(top, values, self.quality, width=130, command=self._quality_changed).pack(side="left", padx=14)
-        muted(top, "Higher = bigger file, better detail").pack(side="left")
-        self.quality_info = muted(quality_card, self.QUALITY_INFO[95], size=14, wraplength=theme.px(820),
-                                  justify="left")
-        self.quality_info.pack(anchor="w", padx=18, pady=(0, 6))
-        muted(quality_card, "JPG can't store transparency, so transparent areas become white. "
-                            "Animated WebP files convert only their first frame. Metadata is not kept.",
-              size=12, wraplength=theme.px(820), justify="left").pack(anchor="w", padx=18, pady=(0, 14))
+        quality = card()
+        q = QVBoxLayout(quality)
+        q.setContentsMargins(theme.px(16), theme.px(14), theme.px(16), theme.px(14))
+        row = QHBoxLayout()
+        row.addWidget(label("JPG quality", "heading"))
+        row.addSpacing(theme.px(12))
+        row.addWidget(self.quality)
+        row.addSpacing(theme.px(12))
+        row.addWidget(muted("Higher = bigger file, better detail"))
+        row.addStretch(1)
+        q.addLayout(row)
+        self.quality_info = muted(self.QUALITY_INFO[95], wrap=True)
+        q.addWidget(self.quality_info)
+        q.addWidget(label("JPG can't store transparency, so transparent areas become white. "
+                          "Animated WebP files convert only their first frame. Metadata is not kept.",
+                          "caption", wrap=True))
+        self.body.addWidget(quality)
 
-        list_card = card(self.body)
-        list_card.grid(row=2, column=0, sticky="nsew", pady=(12, 8))
-        self.tree = tree_in_card(list_card, ("file", "folder", "size"),
-                                 ("File", "Folder", "Size"), (300, 440, 110))
+        list_card = card()
+        layout = QVBoxLayout(list_card)
+        layout.setContentsMargins(theme.px(8), theme.px(8), theme.px(8), theme.px(8))
+        self.tree = make_tree(("File", "Folder", "Size"), (300, 420, 110))
+        layout.addWidget(self.tree)
+        self.body.addWidget(list_card, 1)
 
-        actions = ctk.CTkFrame(self.body, fg_color="transparent")
-        actions.grid(row=3, column=0, sticky="ew", pady=(4, 8))
-        button(actions, "Scan folder", self.scan).pack(side="left")
-        button(actions, "Convert all listed", lambda: self.convert(selected_only=False), "primary",
-               icon=icons.icon("image", "#ffffff", 18)).pack(side="left", padx=8)
-        button(actions, "Convert selected", lambda: self.convert(selected_only=True), "primary").pack(side="left")
-        self.summary = muted(actions, "Choose a folder to see its WebP files.", size=14)
-        self.summary.pack(side="left", padx=16)
+        actions = QHBoxLayout()
+        actions.setSpacing(theme.px(8))
+        scan = button("Scan folder")
+        scan.clicked.connect(self.scan)
+        convert_all = button("Convert all listed", "primary", icons.icon("image", "#ffffff", 18))
+        convert_all.clicked.connect(lambda: self.convert(False))
+        convert_sel = button("Convert selected", "primary")
+        convert_sel.clicked.connect(lambda: self.convert(True))
+        actions.addWidget(scan)
+        actions.addWidget(convert_all)
+        actions.addWidget(convert_sel)
+        self.summary = muted("Choose a folder to see its WebP files.")
+        actions.addSpacing(theme.px(10))
+        actions.addWidget(self.summary, 1)
+        self.body.addLayout(actions)
 
     def _quality_changed(self, choice):
-        self.quality_info.configure(text=self.QUALITY_INFO[int(choice.rstrip("%"))])
+        self.quality_info.setText(self.QUALITY_INFO[int(choice.rstrip("%"))])
 
     def scan(self):
-        folder = self.folder.get().strip()
+        folder = self.folder.text().strip()
         if not Path(folder).is_dir():
             self._show([])
-            self.summary.configure(text="Choose a folder to see its WebP files.")
+            self.summary.setText("Choose a folder to see its WebP files.")
             return
-        recursive = bool(self.recursive.get())
-        self.summary.configure(text="Scanning...")
+        recursive = self.recursive.isChecked()
+        self.summary.setText("Scanning...")
         root = Path(folder)
 
         def worker():
@@ -238,33 +281,35 @@ class WebpPage(Page):
 
     def _show(self, rows):
         self.rows = rows
-        self.tree.delete(*self.tree.get_children())
+        self.tree.clear()
         for p, where, size in rows:
-            self.tree.insert("", "end", iid=str(p), values=(p.name, where, fmt_size(size)))
+            row = QTreeWidgetItem([p.name, where, fmt_size(size)])
+            row.setData(0, ITEM_PATH, str(p))
+            self.tree.addTopLevelItem(row)
         if not rows:
-            self.summary.configure(text="No WebP files found in this folder.")
+            self.summary.setText("No WebP files found in this folder.")
             return
         total = sum(size for _, _, size in rows)
         folders = len({where for _, where, _ in rows})
-        self.summary.configure(text=f"{len(rows)} WebP file(s) in {folders} folder(s), {fmt_size(total)} in total")
+        self.summary.setText(f"{len(rows)} WebP file(s) in {folders} folder(s), {fmt_size(total)} in total")
 
     def convert(self, selected_only):
         if not self.rows:
-            messagebox.showinfo("No files", "Choose a folder with WebP files first.")
+            QMessageBox.information(self, "No files", "Choose a folder with WebP files first.")
             return
         if selected_only:
-            iids = self.tree.selection()
-            if not iids:
-                messagebox.showinfo("Nothing selected", "Select one or more files in the list first.")
+            rows = self.tree.selectedItems()
+            if not rows:
+                QMessageBox.information(self, "Nothing selected", "Select one or more files in the list first.")
                 return
-            paths = [Path(i) for i in iids]
+            paths = [Path(r.data(0, ITEM_PATH)) for r in rows]
         else:
             paths = [p for p, _, _ in self.rows]
-        quality = int(self.quality.get().rstrip("%"))
-        delete = bool(self.delete_originals.get())
-        if delete and not messagebox.askyesno(
-                "Confirm", f"The original .webp files of the {len(paths)} selected file(s) will be sent to the "
-                           "Recycle Bin after converting. Continue?"):
+        quality = int(self.quality.currentText().rstrip("%"))
+        delete = self.delete_originals.isChecked()
+        if delete and QMessageBox.question(
+                self, "Confirm", f"The original .webp files of the {len(paths)} selected file(s) will be sent to "
+                                 "the Recycle Bin after converting. Continue?") != QMessageBox.Yes:
             return
         self.app.run_background(webp_convert.convert_files, paths, quality, delete)
 
@@ -274,125 +319,137 @@ class CopyPage(Page):
     subtitle = "Recreate a folder's sub-folders in another location, without copying any files."
 
     def build(self):
-        self.source = tk.StringVar()
-        self.dest = tk.StringVar()
-        setup = card(self.body)
-        setup.grid(row=0, column=0, sticky="ew")
-        setup.grid_columnconfigure(1, weight=1)
-        self.folder_row(setup, 0, "Folder to copy", self.source, "Choose the folder to copy")
-        self.folder_row(setup, 1, "Copy into", self.dest, "Choose the destination")
-        muted(setup, "Creates a copy of the folder tree (no files) inside the destination.").grid(
-            row=2, column=1, sticky="w", padx=6, pady=(0, 16))
+        self.source = line_edit(placeholder="Choose the folder to copy")
+        self.dest = line_edit(placeholder="Choose the destination")
+        setup = card()
+        grid = QGridLayout(setup)
+        grid.setContentsMargins(theme.px(16), theme.px(14), theme.px(16), theme.px(14))
+        grid.setHorizontalSpacing(theme.px(10))
+        grid.setVerticalSpacing(theme.px(10))
+        grid.setColumnStretch(1, 1)
+        folder_row(grid, 0, "Folder to copy", self.source, "Choose the folder to copy")
+        folder_row(grid, 1, "Copy into", self.dest, "Choose the destination")
+        self.body.addWidget(setup)
 
-        actions = ctk.CTkFrame(self.body, fg_color="transparent")
-        actions.grid(row=1, column=0, sticky="w", pady=12)
-        button(actions, "Copy folder structure", self.run, "primary",
-               icon=icons.icon("copy_folder", "#ffffff", 18)).pack(side="left")
+        run = button("Copy folder structure", "primary", icons.icon("copy_folder", "#ffffff", 18))
+        run.clicked.connect(self.run)
+        self.body.addWidget(run, 0, Qt.AlignLeft)
+        self.body.addStretch(1)
 
     def run(self):
-        src = self.source.get().strip()
-        dst = self.dest.get().strip()
+        src = self.source.text().strip()
+        dst = self.dest.text().strip()
         if not Path(src).is_dir() or not dst:
-            messagebox.showerror("Missing input", "Choose a source folder and a destination.")
+            QMessageBox.critical(self, "Missing input", "Choose a source folder and a destination.")
             return
         self.app.run_background(folder_tools.copy_folder_structure, src, dst)
 
 
+class Tile(QFrame):
+    """A clickable theme preview."""
+    clicked = Signal()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+
+
 class AppearancePage(Page):
     title = "Appearance"
-    subtitle = "Choose a theme, font, text size, element size and corner style. Changes apply straight away and are remembered."
+    subtitle = "Choose a theme, font, size and corner style. Changes apply straight away and are remembered."
 
     def build(self):
-        self.body.grid_columnconfigure(0, weight=1)
-
-        # Themes
-        themes_card = card(self.body)
-        themes_card.grid(row=0, column=0, sticky="ew")
-        theme.label(themes_card, "Theme", size=17, weight="bold").pack(anchor="w", padx=20, pady=(16, 2))
-        muted(themes_card, "Based on the designs you shared. Click a theme to use it.").pack(anchor="w", padx=20)
-        grid = ctk.CTkFrame(themes_card, fg_color="transparent")
-        grid.pack(fill="x", padx=12, pady=12)
-        for c in range(4):
-            grid.grid_columnconfigure(c, weight=1, uniform="theme")
+        themes_card = card()
+        t = QVBoxLayout(themes_card)
+        t.setContentsMargins(theme.px(18), theme.px(16), theme.px(18), theme.px(16))
+        t.addWidget(label("Theme", "heading"))
+        t.addWidget(muted("Based on the designs you shared. Click a theme to use it."))
+        grid = QGridLayout()
+        grid.setSpacing(theme.px(12))
         for i, name in enumerate(PALETTES):
-            self._theme_tile(grid, name, i // 4, i % 4)
+            grid.addWidget(self._theme_tile(name), i // 4, i % 4)
+        t.addLayout(grid)
+        self.body.addWidget(themes_card)
 
-        # Font
-        font_card = card(self.body)
-        font_card.grid(row=1, column=0, sticky="ew", pady=(12, 0))
-        row = ctk.CTkFrame(font_card, fg_color="transparent")
-        row.pack(fill="x", padx=20, pady=(16, 4))
-        theme.label(row, "Font", size=17, weight="bold").pack(side="left")
-        installed = theme.installed_families(self)
-        choices = [f for f in FONT_CHOICES if f in installed] or [theme.FAMILY]
-        self.font_var = tk.StringVar(value=theme.FAMILY if theme.FAMILY in choices else choices[0])
-        theme.combo(row, choices, self.font_var, width=240, command=lambda c: self.app.change_appearance(font=c)).pack(
-            side="left", padx=16)
-        muted(row, "Only fonts installed on this PC are listed.").pack(side="left")
-        self.sample = ctk.CTkLabel(font_card, text="The quick brown fox jumps over the lazy dog. 0123456789",
-                                   font=ctk.CTkFont(family=theme.FAMILY, size=theme._text_px(20)),
-                                   text_color=theme.TEXT)
-        self.sample.pack(anchor="w", padx=20, pady=(6, 18))
+        font_card = card()
+        f = QVBoxLayout(font_card)
+        f.setContentsMargins(theme.px(18), theme.px(16), theme.px(18), theme.px(16))
+        row = QHBoxLayout()
+        row.addWidget(label("Font", "heading"))
+        row.addSpacing(theme.px(12))
+        installed = theme.installed_families()
+        choices = [name for name in FONT_CHOICES if name in installed] or [theme.FAMILY]
+        font_box = QComboBox()
+        font_box.addItems(choices)
+        font_box.setCurrentText(theme.FAMILY if theme.FAMILY in choices else choices[0])
+        font_box.currentTextChanged.connect(lambda name: self.app.change_appearance(font=name))
+        font_box.setMinimumWidth(theme.px(240))
+        row.addWidget(font_box)
+        row.addSpacing(theme.px(12))
+        row.addWidget(muted("Only fonts installed on this PC are listed."))
+        row.addStretch(1)
+        f.addLayout(row)
+        sample = QLabel("The quick brown fox jumps over the lazy dog. 0123456789")
+        sample.setFont(theme.font("sample"))
+        f.addWidget(sample)
+        self.body.addWidget(font_card)
 
-        # Sizes and shape
-        size_card = card(self.body)
-        size_card.grid(row=2, column=0, sticky="ew", pady=(12, 12))
-        size_card.grid_columnconfigure(1, weight=1)
-        self._option_row(size_card, 0, "Text size", TEXT_SIZES, theme.TEXT_SCALE, "text_scale",
-                         "Changes the size of the words only.")
-        self._option_row(size_card, 1, "Element size", ELEMENT_SIZES, theme.UI_SCALE, "ui_scale",
-                         "Changes the size of buttons, boxes, switches and tables.")
-        self._option_row(size_card, 2, "Corner style", CORNER_STYLES, theme.RADIUS_SCALE, "radius_scale",
+        size_card = card()
+        s = QGridLayout(size_card)
+        s.setContentsMargins(theme.px(18), theme.px(16), theme.px(18), theme.px(16))
+        s.setHorizontalSpacing(theme.px(14))
+        s.setVerticalSpacing(theme.px(12))
+        self._option_row(s, 0, "Size", SIZE_CHOICES, theme.SIZE, "size",
+                         "Scales the text and every button, box and table together.")
+        self._option_row(s, 1, "Corner style", CORNER_STYLES, theme.RADIUS, "radius_scale",
                          "How rounded the cards, buttons and boxes are.")
+        s.setColumnStretch(2, 1)
+        self.body.addWidget(size_card)
 
-        button(self.body, "Reset to default", self._reset, "secondary", width=190).grid(
-            row=3, column=0, sticky="w", pady=(0, 8))
+        reset = button("Reset to default")
+        reset.clicked.connect(self._reset)
+        self.body.addWidget(reset, 0, Qt.AlignLeft)
+        self.body.addStretch(1)
 
-    def _option_row(self, parent, row, title, mapping, current, key, hint):
-        theme.label(parent, title, size=16, weight="bold").grid(row=row, column=0, sticky="w", padx=(20, 14), pady=12)
-        var = tk.StringVar(value=_nearest(mapping, current))
-        theme.combo(parent, list(mapping), var, width=200,
-                    command=lambda choice, k=key, m=mapping: self.app.change_appearance(**{k: m[choice]})
-                    ).grid(row=row, column=1, sticky="w", padx=6, pady=12)
-        muted(parent, hint).grid(row=row, column=2, sticky="w", padx=(14, 20), pady=12)
+    def _option_row(self, grid, row, title, mapping, current, key, hint):
+        grid.addWidget(label(title, "heading"), row, 0)
+        box = QComboBox()
+        box.addItems(list(mapping))
+        box.setCurrentText(_nearest(mapping, current))
+        box.setMinimumWidth(theme.px(180))
+        box.currentTextChanged.connect(lambda choice, k=key, m=mapping: self.app.change_appearance(**{k: m[choice]}))
+        grid.addWidget(box, row, 1)
+        grid.addWidget(muted(hint), row, 2)
 
-    def _theme_tile(self, parent, name, row, col):
+    def _theme_tile(self, name):
         p = PALETTES[name]
         selected = name == theme.CURRENT_THEME
-        tile = ctk.CTkFrame(parent, fg_color=p["APP_BG"], corner_radius=theme.radius(14),
-                            border_width=3 if selected else 1,
-                            border_color=p["GREEN"] if selected else theme.CARD_BORDER)
-        tile.grid(row=row, column=col, sticky="nsew", padx=8, pady=8)
-
-        preview = ctk.CTkFrame(tile, fg_color=p["SIDEBAR"], corner_radius=theme.radius(10))
-        preview.pack(fill="x", padx=12, pady=(12, 6))
-        strip = ctk.CTkFrame(preview, fg_color="transparent")
-        strip.pack(fill="x", padx=10, pady=10)
-        ctk.CTkFrame(strip, width=theme.px(60), height=theme.px(44), corner_radius=theme.radius(8),
-                     fg_color=p["CARD"]).pack(side="left")
-        ctk.CTkFrame(strip, width=theme.px(60), height=theme.px(44), corner_radius=theme.radius(8),
-                     fg_color=p["TRACK"]).pack(side="left", padx=8)
-        ctk.CTkFrame(strip, width=theme.px(60), height=theme.px(44), corner_radius=theme.radius(8),
-                     fg_color=p["GREEN"]).pack(side="left")
-        name_label = ctk.CTkLabel(tile, text=("✓ " if selected else "") + name, font=theme.font(15, "bold"),
-                                  text_color=p["TEXT"])
-        name_label.pack(anchor="w", padx=14, pady=(4, 12))
-
-        def choose(_event=None, n=name):
-            self.app.change_appearance(theme=n)
-
-        def bind_all_children(widget):
-            widget.bind("<Button-1>", choose)
-            for child in widget.winfo_children():
-                bind_all_children(child)
-
-        bind_all_children(tile)
+        tile = Tile()
+        tile.setCursor(Qt.CursorShape.PointingHandCursor)
+        tile.setStyleSheet(f"QFrame {{ background: {p['APP_BG']}; border-radius: {theme.radius(14)}px; "
+                           f"border: {3 if selected else 1}px solid "
+                           f"{p['GREEN'] if selected else theme.CARD_BORDER}; }}")
+        v = QVBoxLayout(tile)
+        v.setContentsMargins(theme.px(12), theme.px(12), theme.px(12), theme.px(12))
+        strip = QHBoxLayout()
+        strip.setSpacing(theme.px(8))
+        for colour in (p["CARD"], p["TRACK"], p["GREEN"]):
+            block = QFrame()
+            block.setFixedSize(theme.px(56), theme.px(36))
+            block.setStyleSheet(f"background: {colour}; border-radius: {theme.radius(8)}px; border: none;")
+            strip.addWidget(block)
+        strip.addStretch(1)
+        v.addLayout(strip)
+        name_label = QLabel(("✓ " if selected else "") + name)
+        name_label.setStyleSheet(f"color: {p['TEXT']}; font-weight: bold; background: transparent; border: none;")
+        v.addWidget(name_label)
+        tile.clicked.connect(lambda n=name: self.app.change_appearance(theme=n))
+        return tile
 
     def _reset(self):
-        self.app.change_appearance(theme=DEFAULT_THEME, font="Inter", text_scale=1.0, ui_scale=1.0, radius_scale=1.0)
+        self.app.change_appearance(theme=DEFAULT_THEME, font="Inter", size=1.0, radius_scale=1.0)
 
 
-# Sidebar entries: key, label, icon name
 NAV = [
     ("silent", "Silent videos", "silent"),
     ("gif", "GIF maker", "gif"),
@@ -411,103 +468,115 @@ PAGES = {
 }
 
 
-class App(ctk.CTk):
+class App(QMainWindow):
     def __init__(self):
         super().__init__()
-        theme.setup(self)
-        self.title("Media Toolbox")
-        self.geometry("1280x880")
-        self.minsize(1000, 680)
-        self.ui_queue = queue.Queue()
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
+        self.setWindowTitle("Media Toolbox")
+        self.resize(theme.px(1280), theme.px(880))
+        self.setMinimumSize(760, 520)
+        self.bridge = Bridge()
+        self.current_key = "silent"
         self.nav = {}
         self.pages = {}
-        self.current_key = "silent"
-
-        self._build_sidebar()
-        self._build_main()
-        self.show("silent")
-        self.after(80, self._drain)
+        self._build()
 
     # ---------- layout ----------
-    def _build_sidebar(self):
-        side = ctk.CTkFrame(self, width=theme.px(260), corner_radius=0, fg_color=theme.SIDEBAR)
-        side.grid(row=0, column=0, sticky="nsew")
+    def _build(self):
+        root = QWidget()
+        root.setObjectName("root")
+        h = QHBoxLayout(root)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(0)
+        h.addWidget(self._sidebar())
 
-        brand = ctk.CTkFrame(side, fg_color="transparent")
-        brand.pack(fill="x", padx=20, pady=(24, 22))
-        ctk.CTkLabel(brand, text="", image=icons.icon("logo", theme.GREEN, 34)).pack(side="left")
-        names = ctk.CTkFrame(brand, fg_color="transparent")
-        names.pack(side="left", padx=12)
-        theme.label(names, "Media Toolbox", size=17, weight="bold").pack(anchor="w")
-        muted(names, "Everyday file tools", size=12).pack(anchor="w")
-
-        theme.label(side, "TOOLS", size=12, weight="bold", color=theme.MUTED).pack(anchor="w", padx=26, pady=(4, 8))
-        for key, text, icon_name in NAV:
-            btn = ctk.CTkButton(side, text=f"  {text}", anchor="w", height=theme.px(48),
-                                corner_radius=theme.radius(10), fg_color="transparent",
-                                hover_color=theme.NAV_HOVER, text_color=theme.MUTED,
-                                font=theme.font(15, "bold"),
-                                image=icons.icon(icon_name, theme.MUTED, 22), compound="left",
-                                command=lambda k=key: self.show(k))
-            btn.pack(fill="x", padx=14, pady=3)
-            self.nav[key] = (btn, icon_name)
-
-    def _build_main(self):
-        main = ctk.CTkFrame(self, fg_color=theme.APP_BG, corner_radius=0)
-        main.grid(row=0, column=1, sticky="nsew")
-        main.grid_columnconfigure(0, weight=1)
-        main.grid_rowconfigure(0, weight=1)
-
-        # Pages above, activity log below. Drag the divider to make the log taller or shorter.
-        split = tk.PanedWindow(main, orient="vertical", sashwidth=theme.px(10), sashrelief="flat", bd=0,
-                               background=theme.APP_BG, opaqueresize=True)
-        split.grid(row=0, column=0, sticky="nsew")
-        top_area = ctk.CTkFrame(split, fg_color="transparent")
-        log_area = ctk.CTkFrame(split, fg_color="transparent")
-        split.add(top_area, minsize=theme.px(260), stretch="always")
-        split.add(log_area, minsize=theme.px(150), stretch="never")
-
-        host = ctk.CTkFrame(top_area, fg_color="transparent")
-        host.pack(fill="both", expand=True, padx=24, pady=(20, 10))
-        host.grid_columnconfigure(0, weight=1)
-        host.grid_rowconfigure(0, weight=1)
+        self.stack = QStackedWidget()
         for key, cls in PAGES.items():
-            page = cls(host, self)
-            page.grid(row=0, column=0, sticky="nsew")
+            holder = QWidget()
+            hl = QVBoxLayout(holder)
+            hl.setContentsMargins(theme.px(24), theme.px(20), theme.px(24), theme.px(10))
+            page = cls(self)
+            hl.addWidget(page)
+            self.stack.addWidget(holder)
             self.pages[key] = page
 
-        self._build_activity(log_area)
+        split = QSplitter(Qt.Vertical)
+        split.setChildrenCollapsible(False)
+        split.setHandleWidth(theme.px(10))
+        split.addWidget(self.stack)
+        split.addWidget(self._activity())
+        split.setStretchFactor(0, 1)
+        split.setSizes([theme.px(600), theme.px(150)])
+        h.addWidget(split, 1)
 
-    def _build_activity(self, parent):
-        panel = card(parent)
-        panel.pack(fill="both", expand=True, padx=24, pady=(0, 20))
+        self.setCentralWidget(root)
+        self.show_page(self.current_key)
 
-        top = ctk.CTkFrame(panel, fg_color="transparent")
-        top.pack(fill="x", padx=18, pady=(14, 8))
-        self.status = theme.label(top, "Ready", size=14, weight="bold", width=theme.px(320), anchor="w")
-        self.status.pack(side="left")
-        button(top, "Clear log", self._clear_log, width=120).pack(side="right")
-        self.bar = ctk.CTkProgressBar(top, height=theme.px(14), corner_radius=7, progress_color=theme.GREEN,
-                                      fg_color=theme.TRACK)
-        self.bar.set(0)
-        self.bar.pack(side="left", fill="x", expand=True, padx=16)
+    def _sidebar(self):
+        side = QFrame()
+        side.setObjectName("sidebar")
+        side.setFixedWidth(theme.px(240))
+        v = QVBoxLayout(side)
+        v.setContentsMargins(theme.px(18), theme.px(22), theme.px(14), theme.px(18))
+        brand = QHBoxLayout()
+        logo = QLabel()
+        logo.setPixmap(icons.icon("logo", theme.GREEN, theme.px(34)).pixmap(theme.px(34), theme.px(34)))
+        brand.addWidget(logo)
+        names = QVBoxLayout()
+        names.setSpacing(0)
+        names.addWidget(label("Media Toolbox", "heading"))
+        names.addWidget(label("Everyday file tools", "caption"))
+        brand.addSpacing(theme.px(10))
+        brand.addLayout(names)
+        brand.addStretch(1)
+        v.addLayout(brand)
+        v.addSpacing(theme.px(22))
+        v.addWidget(label("TOOLS", "section"))
+        v.addSpacing(theme.px(6))
+        self.nav = {}
+        for key, text, icon_name in NAV:
+            btn = button(text)
+            btn.setProperty("nav", "true")
+            btn.setIconSize(QSize(theme.px(22), theme.px(22)))
+            btn.clicked.connect(lambda _c=False, k=key: self.show_page(k))
+            v.addWidget(btn)
+            self.nav[key] = (btn, icon_name)
+        v.addStretch(1)
+        return side
 
-        self.log_box = ctk.CTkTextbox(panel, height=theme.px(110), corner_radius=theme.radius(10),
-                                      fg_color=theme.FIELD, text_color=theme.TEXT,
-                                      font=(theme.MONO, theme._text_px(13)), wrap="word")
-        self.log_box.pack(fill="both", expand=True, padx=18, pady=(0, 16))
-        self.log_box.configure(state="disabled")
+    def _activity(self):
+        panel = card()
+        v = QVBoxLayout(panel)
+        v.setContentsMargins(theme.px(16), theme.px(12), theme.px(16), theme.px(14))
+        top = QHBoxLayout()
+        top.setSpacing(theme.px(12))
+        self.status = label("Ready", "heading")
+        top.addWidget(self.status)
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 1000)
+        self.bar.setValue(0)
+        self.bar.setTextVisible(False)
+        top.addWidget(self.bar, 1)
+        clear = button("Clear log")
+        clear.clicked.connect(self._clear_log)
+        top.addWidget(clear)
+        v.addLayout(top)
+        self.log_view = QPlainTextEdit()
+        self.log_view.setObjectName("log")
+        self.log_view.setReadOnly(True)
+        self.log_view.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        self.log_view.setMaximumBlockCount(5000)
+        v.addWidget(self.log_view, 1)
+        return panel
 
-    def show(self, key):
+    def show_page(self, key):
         self.current_key = key
-        self.pages[key].tkraise()
+        self.stack.setCurrentIndex(list(PAGES).index(key))
         for k, (btn, icon_name) in self.nav.items():
             active = k == key
-            btn.configure(fg_color=theme.NAV_ACTIVE if active else "transparent",
-                          text_color=theme.TEXT if active else theme.MUTED,
-                          image=icons.icon(icon_name, theme.TEXT if active else theme.MUTED, 22))
+            btn.setProperty("active", "true" if active else "false")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+            btn.setIcon(icons.icon(icon_name, theme.TEXT if active else theme.MUTED, theme.px(22)))
 
     # ---------- appearance ----------
     def change_appearance(self, **changes):
@@ -516,79 +585,51 @@ class App(ctk.CTk):
         current = {
             "theme": theme.CURRENT_THEME,
             "font": theme.WANTED_FAMILY,
-            "text_scale": theme.TEXT_SCALE,
-            "ui_scale": theme.UI_SCALE,
-            "radius_scale": theme.RADIUS_SCALE,
+            "size": theme.SIZE,
+            "radius_scale": theme.RADIUS,
         }
         current.update(changes)
         settings.save(current)
         apply_settings(current)
-        self.after(30, self.rebuild)
+        QTimer.singleShot(0, self._rebuild)
 
-    def rebuild(self):
-        """Rebuild all the widgets so they pick up the new theme and sizes. The log and the current page are kept."""
-        key = self.current_key
-        log_text = self.log_box.get("1.0", "end-1c")
-        status = self.status.cget("text")
-        for child in self.winfo_children():
-            child.destroy()
-        self.nav = {}
-        self.pages = {}
-        theme.setup(self)
-        self.configure(fg_color=theme.APP_BG)
-        self._build_sidebar()
-        self._build_main()
-        self.log_box.configure(state="normal")
-        self.log_box.insert("1.0", log_text)
-        self.log_box.see("end")
-        self.log_box.configure(state="disabled")
-        self.status.configure(text=status)
-        self.show(key)
+    def _rebuild(self):
+        log_text = self.log_view.toPlainText()
+        status = self.status.text()
+        progress = self.bar.value()
+        theme.apply(QApplication.instance())
+        self._build()
+        self.log_view.setPlainText(log_text)
+        self.status.setText(status)
+        self.bar.setValue(progress)
 
     # ---------- thread-safe updates ----------
-    # Background threads never touch the UI directly; they queue callables for the UI thread.
+    # Background threads never touch the UI directly; they hand callables to the UI thread.
     def log(self, msg):
         stamp = datetime.now().strftime("%H:%M:%S")
-        self.ui_queue.put(lambda: self._append_log(f"{stamp}  {msg}"))
+        self.bridge.call.emit(lambda: self._append_log(f"{stamp}  {msg}"))
 
     def on_main(self, fn):
-        self.ui_queue.put(fn)
+        self.bridge.call.emit(fn)
 
     def progress(self, done, total, text=""):
         """Show progress for the running job, e.g. progress(3, 10, "Converting")."""
-        self.ui_queue.put(lambda: self._set_progress(done, total, text))
+        self.bridge.call.emit(lambda: self._set_progress(done, total, text))
 
     def _set_progress(self, done, total, text):
         if total:
-            pct = done * 100 / total
-            self.bar.set(done / total)
-            self.status.configure(text=f"{text}: {done} of {total}  ({pct:.0f}%)")
+            self.bar.setValue(round(done / total * 1000))
+            self.status.setText(f"{text}: {done} of {total}  ({done * 100 / total:.0f}%)")
         else:
-            self.bar.set(0)
-            self.status.configure(text=text)
+            self.bar.setValue(0)
+            self.status.setText(text)
 
     def _append_log(self, line):
-        self.log_box.configure(state="normal")
-        self.log_box.insert("end", line + "\n")
-        self.log_box.see("end")
-        self.log_box.configure(state="disabled")
+        self.log_view.appendPlainText(line)
+        self.log_view.verticalScrollBar().setValue(self.log_view.verticalScrollBar().maximum())
 
     def _clear_log(self):
-        self.log_box.configure(state="normal")
-        self.log_box.delete("1.0", "end")
-        self.log_box.configure(state="disabled")
-
-    def _drain(self):
-        try:
-            while True:
-                fn = self.ui_queue.get_nowait()
-                try:
-                    fn()
-                except Exception as exc:  # e.g. a page was rebuilt while a job was running
-                    self._append_log(f"UI update skipped: {exc}")
-        except queue.Empty:
-            pass
-        self.after(80, self._drain)
+        self.log_view.clear()
 
     def run_background(self, fn, *args, **kwargs):
         """Run fn in a thread. fn receives log= and progress= callbacks automatically."""
@@ -609,10 +650,18 @@ def apply_settings(saved):
     """Apply saved appearance choices to the theme module."""
     theme.use_theme(saved.get("theme", DEFAULT_THEME))
     theme.set_family(saved.get("font", theme.BUNDLED_FAMILY))
-    theme.set_sizes(saved.get("text_scale", 1.0), saved.get("ui_scale", 1.0), saved.get("radius_scale", 1.0))
+    theme.set_look(saved.get("size", 1.0), saved.get("radius_scale", 1.0))
+
+
+def main():
+    app = QApplication(sys.argv)
+    theme.load_fonts()
+    apply_settings(settings.load())
+    theme.apply(app)
+    window = App()
+    window.show()
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":
-    theme.load_fonts()
-    apply_settings(settings.load())
-    App().mainloop()
+    main()

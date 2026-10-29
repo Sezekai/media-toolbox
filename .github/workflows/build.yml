@@ -36,7 +36,7 @@ jobs:
 
       - name: Build EXE
         run: >
-          pyinstaller --noconsole --onefile --name MediaToolbox --collect-all customtkinter --add-data "fonts;fonts"
+          pyinstaller --noconsole --onefile --name MediaToolbox --add-data "fonts;fonts"
           --add-binary "ffmpeg.exe;."
           --add-binary "ffprobe.exe;."
           main.py

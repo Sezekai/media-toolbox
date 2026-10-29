@@ -67,12 +67,10 @@ PALETTES = {
     ),
 }
 
-# Size choices shown in the Appearance page: label -> scale factor, in 5% steps (40% to 160%)
-SIZE_STEPS = {
-    (f"{p}% (normal)" if p == 100 else f"{p}%"): p / 100 for p in range(40, 165, 5)
-}
-TEXT_SIZES = SIZE_STEPS
-ELEMENT_SIZES = SIZE_STEPS
+# One size setting scales text and elements together. 100% is the default layout.
+SIZE_CHOICES = {(f"{p}% (normal)" if p == 100 else f"{p}%"): p / 100 for p in range(50, 165, 5)}
+
+# Corner styles scale every rounded corner by the same factor.
 CORNER_STYLES = {"Square": 0.0, "Soft": 0.5, "Rounded": 1.0, "Very rounded": 1.5}
 
 # Font families offered in the Appearance page (only the ones installed on the PC are shown)
