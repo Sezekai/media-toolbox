@@ -1,33 +1,44 @@
-"""Colours, fonts and widget builders for the dark interface."""
+"""Colours, fonts, sizes and widget builders. Values change when the user picks options in Appearance."""
 import ctypes
 import os
 import sys
+import tkinter.font as tkfont
 from tkinter import ttk
 
 import customtkinter as ctk
 
-FAMILY = "Inter"            # falls back to Segoe UI if Inter can't be loaded
+from themes import COLOUR_NAMES, DEFAULT_THEME, PALETTES
+
+BUNDLED_FAMILY = "Inter"
 FALLBACK_FAMILY = "Segoe UI"
 MONO = "Consolas"
 
-APP_BG = "#0d0d0f"
-SIDEBAR = "#121215"
-CARD = "#1b1b20"
-CARD_BORDER = "#2a2a31"
-FIELD = "#101014"
-TRACK = "#2a2a33"
-NAV_HOVER = "#1f1f25"
-NAV_ACTIVE = "#2b2b34"
-TEXT = "#f5f5f7"
-MUTED = "#a4a4ae"
-GREEN = "#1f9d55"
-GREEN_HOVER = "#27b865"
-SECONDARY = "#2b2b33"
-SECONDARY_HOVER = "#3a3a44"
-RED = "#c0392b"
-RED_HOVER = "#d94b3c"
-SELECT = "#2e4a70"
-HEADING = "#23232a"
+# Chosen in Appearance (and remembered between runs)
+WANTED_FAMILY = BUNDLED_FAMILY
+FAMILY = BUNDLED_FAMILY
+TEXT_SCALE = 1.0
+UI_SCALE = 1.0
+RADIUS_SCALE = 1.0
+CURRENT_THEME = DEFAULT_THEME
+
+
+def use_theme(name):
+    """Switch the colours to the named theme."""
+    global CURRENT_THEME
+    palette = PALETTES.get(name, PALETTES[DEFAULT_THEME])
+    CURRENT_THEME = name if name in PALETTES else DEFAULT_THEME
+    for colour in COLOUR_NAMES:
+        globals()[colour] = palette[colour]
+
+
+def set_sizes(text_scale, ui_scale, radius_scale):
+    global TEXT_SCALE, UI_SCALE, RADIUS_SCALE
+    TEXT_SCALE, UI_SCALE, RADIUS_SCALE = float(text_scale), float(ui_scale), float(radius_scale)
+
+
+def set_family(name):
+    global WANTED_FAMILY
+    WANTED_FAMILY = name or BUNDLED_FAMILY
 
 
 def _bundle_path(*parts):
@@ -48,34 +59,61 @@ def load_fonts():
             ctypes.windll.gdi32.AddFontResourceExW(path, FR_PRIVATE, 0)
 
 
-def choose_family(root):
-    """Use Inter if Tk can see it, otherwise fall back to Segoe UI."""
+def installed_families(root):
+    return set(tkfont.families(root))
+
+
+def _resolve_family(root):
     global FAMILY
-    import tkinter.font as tkfont
-    if "Inter" not in tkfont.families(root):
+    available = installed_families(root)
+    if WANTED_FAMILY in available:
+        FAMILY = WANTED_FAMILY
+    elif BUNDLED_FAMILY in available:
+        FAMILY = BUNDLED_FAMILY
+    else:
         FAMILY = FALLBACK_FAMILY
 
 
+# ----- sizes -----
+def px(n):
+    """A size in pixels, scaled by the element size setting."""
+    return max(1, round(n * UI_SCALE))
+
+
+def radius(n):
+    """A corner radius, scaled by the corner style setting."""
+    return max(0, round(n * RADIUS_SCALE))
+
+
+def _text_px(size):
+    return max(8, round(size * TEXT_SCALE))
+
+
 def font(size=14, weight="normal"):
-    return ctk.CTkFont(family=FAMILY, size=size, weight=weight)
+    return ctk.CTkFont(family=FAMILY, size=_text_px(size), weight=weight)
+
+
+def tk_font(size=12, bold=False):
+    """A font tuple for the plain Tk parts of the app (table headings and rows)."""
+    return (FAMILY, _text_px(size), "bold" if bold else "normal")
 
 
 def setup(root):
-    """Apply the dark theme. Call once, right after creating the main window."""
+    """Apply the current theme and sizes. Call after creating the main window, and again after a change."""
     ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("blue")
+    _resolve_family(root)
     root.configure(fg_color=APP_BG)
-    choose_family(root)
 
     # Tables (ttk.Treeview) are not part of CustomTkinter, so they are styled here to match.
     style = ttk.Style(root)
     style.theme_use("clam")
     style.configure("Treeview", background=FIELD, fieldbackground=FIELD, foreground=TEXT,
                     bordercolor=CARD_BORDER, lightcolor=CARD_BORDER, darkcolor=CARD_BORDER,
-                    rowheight=36, font=(FAMILY, 12))
-    style.map("Treeview", background=[("selected", SELECT)], foreground=[("selected", "#ffffff")])
+                    rowheight=px(36), font=tk_font(12))
+    style.map("Treeview", background=[("selected", SELECT)], foreground=[("selected", TEXT)])
     style.configure("Treeview.Heading", background=HEADING, foreground=MUTED, bordercolor=CARD_BORDER,
-                    relief="flat", font=(FAMILY, 12, "bold"), padding=(10, 10))
+                    relief="flat", font=tk_font(12, bold=True), padding=(10, 10))
     style.map("Treeview.Heading", background=[("active", SECONDARY_HOVER)])
     for orient in ("Vertical", "Horizontal"):
         style.configure(f"{orient}.TScrollbar", background=SECONDARY, troughcolor=FIELD,
@@ -85,31 +123,33 @@ def setup(root):
 
 def card(parent, **kw):
     """A rounded panel."""
-    opts = {"fg_color": CARD, "corner_radius": 14, "border_width": 1, "border_color": CARD_BORDER}
+    opts = {"fg_color": CARD, "corner_radius": radius(14), "border_width": 1, "border_color": CARD_BORDER}
     opts.update(kw)
     return ctk.CTkFrame(parent, **opts)
 
 
-_BUTTON_COLOURS = {
-    "primary": (GREEN, GREEN_HOVER),
-    "secondary": (SECONDARY, SECONDARY_HOVER),
-    "danger": (RED, RED_HOVER),
-}
+def _button_colours(kind):
+    if kind == "primary":
+        return GREEN, GREEN_HOVER, ON_GREEN
+    if kind == "danger":
+        return RED, RED_HOVER, "#ffffff"
+    return SECONDARY, SECONDARY_HOVER, TEXT
 
 
 def button(parent, text, command, kind="secondary", icon=None, width=None):
-    fg, hover = _BUTTON_COLOURS[kind]
+    fg, hover, text_colour = _button_colours(kind)
     opts = {"text": text, "command": command, "fg_color": fg, "hover_color": hover,
-            "text_color": "#ffffff", "corner_radius": 10, "height": 42, "font": font(14, "bold")}
+            "text_color": text_colour, "corner_radius": radius(10), "height": px(42),
+            "font": font(14, "bold")}
     if icon is not None:
         opts.update(image=icon, compound="left")
     if width:
-        opts["width"] = width
+        opts["width"] = px(width)
     return ctk.CTkButton(parent, **opts)
 
 
-def label(parent, text, size=14, weight="normal", color=TEXT, **kw):
-    return ctk.CTkLabel(parent, text=text, font=font(size, weight), text_color=color, **kw)
+def label(parent, text, size=14, weight="normal", color=None, **kw):
+    return ctk.CTkLabel(parent, text=text, font=font(size, weight), text_color=color or TEXT, **kw)
 
 
 def muted(parent, text, size=13, **kw):
@@ -117,18 +157,37 @@ def muted(parent, text, size=13, **kw):
 
 
 def entry(parent, var=None, width=None, **kw):
-    opts = {"height": 40, "corner_radius": 8, "fg_color": FIELD, "border_color": CARD_BORDER,
+    opts = {"height": px(40), "corner_radius": radius(8), "fg_color": FIELD, "border_color": CARD_BORDER,
             "text_color": TEXT, "font": font(14)}
     if var is not None:
         opts["textvariable"] = var
     if width:
-        opts["width"] = width
+        opts["width"] = px(width)
     opts.update(kw)
     return ctk.CTkEntry(parent, **opts)
 
 
-def switch(parent, text, var):
+def switch(parent, text, var, command=None):
     """On/off switch bound to an IntVar (1 = on, 0 = off)."""
-    return ctk.CTkSwitch(parent, text=text, variable=var, onvalue=1, offvalue=0, font=font(14),
-                         text_color=TEXT, progress_color=GREEN, fg_color=SECONDARY,
-                         button_color="#ffffff", button_hover_color="#e4e4ea", height=28)
+    opts = {"text": text, "variable": var, "onvalue": 1, "offvalue": 0, "font": font(14),
+            "text_color": TEXT, "progress_color": GREEN, "fg_color": SECONDARY,
+            "button_color": "#ffffff", "button_hover_color": "#e4e4ea", "height": px(28)}
+    if command:
+        opts["command"] = command
+    return ctk.CTkSwitch(parent, **opts)
+
+
+def combo(parent, values, variable, width=160, command=None):
+    """A read-only dropdown in the current theme."""
+    opts = {"values": values, "variable": variable, "state": "readonly", "width": px(width),
+            "height": px(40), "corner_radius": radius(8), "font": font(14), "dropdown_font": font(14),
+            "fg_color": FIELD, "border_color": CARD_BORDER, "text_color": TEXT,
+            "button_color": SECONDARY, "button_hover_color": SECONDARY_HOVER,
+            "dropdown_fg_color": CARD, "dropdown_hover_color": SECONDARY, "dropdown_text_color": TEXT}
+    if command:
+        opts["command"] = command
+    return ctk.CTkComboBox(parent, **opts)
+
+
+# Set the defaults once at import, so every name exists before the app starts.
+use_theme(DEFAULT_THEME)

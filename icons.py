@@ -66,6 +66,10 @@ def _draw(name, colour, px):
         for y in (8, 12, 16):
             dot(5, y, 1.3)
             line([(9, y), (19, y)])
+    elif name == "brush":
+        line([(4, 20), (9, 15)])
+        solid([(9, 13), (14, 8), (17, 11), (12, 16)])
+        line([(15, 7), (18, 4)])
     elif name == "logo":
         box(3, 3, 11, 11, 2)
         box(13, 3, 21, 11, 2)

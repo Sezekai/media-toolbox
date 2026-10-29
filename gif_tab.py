@@ -36,7 +36,7 @@ class Timeline(tk.Canvas):
     PAD = 16
 
     def __init__(self, master, on_drag, on_release):
-        super().__init__(master, height=72, background=theme.FIELD, highlightthickness=0)
+        super().__init__(master, height=theme.px(72), background=theme.FIELD, highlightthickness=0)
         self.on_drag = on_drag
         self.on_release = on_release
         self.duration = 0.0
@@ -143,12 +143,7 @@ class GifTab(Page):
         muted(settings, "Width (px)").pack(side="left")
         entry(settings, self.width, width=84).pack(side="left", padx=(8, 20))
         muted(settings, "Quality").pack(side="left")
-        ctk.CTkComboBox(settings, values=list(gif_maker.QUALITY_PRESETS), variable=self.quality,
-                        state="readonly", width=160, height=40, corner_radius=8, font=theme.font(14),
-                        fg_color=theme.FIELD, border_color=theme.CARD_BORDER, text_color=theme.TEXT,
-                        button_color=theme.SECONDARY, button_hover_color=theme.SECONDARY_HOVER,
-                        dropdown_fg_color=theme.CARD, dropdown_hover_color=theme.SECONDARY,
-                        dropdown_text_color=theme.TEXT, dropdown_font=theme.font(14)).pack(side="left", padx=(8, 16))
+        theme.combo(settings, list(gif_maker.QUALITY_PRESETS), self.quality, width=160).pack(side="left", padx=(8, 16))
         muted(settings, "Higher quality = better colours, bigger file, slower").pack(side="left")
 
         self.folder_row(setup, 3, "Save GIFs to", self.out_dir, "Save GIFs to...")
@@ -204,10 +199,10 @@ class GifTab(Page):
         self.end_preview = self._preview_box(previews, 1, "Clip ends at")
 
     def _preview_box(self, parent, col, caption):
-        box = ctk.CTkFrame(parent, fg_color=theme.FIELD, corner_radius=12)
+        box = ctk.CTkFrame(parent, fg_color=theme.FIELD, corner_radius=theme.radius(12))
         box.grid(row=0, column=col, sticky="nsew", padx=(0, 8) if col == 0 else (8, 0))
         muted(box, caption).pack(anchor="w", padx=14, pady=(10, 6))
-        view = ctk.CTkLabel(box, text="No video selected", height=190, font=theme.font(14),
+        view = ctk.CTkLabel(box, text="No video selected", height=theme.px(190), font=theme.font(14),
                             text_color=theme.MUTED)
         view.pack(fill="both", expand=True, padx=14, pady=(0, 14))
         return view

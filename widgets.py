@@ -8,10 +8,12 @@ import theme
 from theme import button, entry, label, muted
 
 
-def _pick(var, title):
+def _pick(var, title, on_change=None):
     chosen = filedialog.askdirectory(title=title)
     if chosen:
         var.set(chosen)
+        if on_change:
+            on_change()
 
 
 class ScrollArea(ctk.CTkFrame):
@@ -70,7 +72,7 @@ def tree_in_card(parent, columns, headings, widths):
     tree = ttk.Treeview(inner, columns=columns, show="headings", selectmode="extended", height=8)
     for col, text, width in zip(columns, headings, widths):
         tree.heading(col, text=text)
-        tree.column(col, width=width, minwidth=90, stretch=True)
+        tree.column(col, width=theme.px(width), minwidth=theme.px(90), stretch=True)
     scroll = ttk.Scrollbar(inner, orient="vertical", command=tree.yview)
     tree.configure(yscrollcommand=scroll.set)
     tree.pack(side="left", fill="both", expand=True)
@@ -107,9 +109,10 @@ class Page(ctk.CTkFrame):
     def build(self):
         raise NotImplementedError
 
-    def folder_row(self, parent, row, text, var, title="Choose a folder"):
-        """Label, path box and Browse button on one row. The parent needs column 1 to stretch."""
+    def folder_row(self, parent, row, text, var, title="Choose a folder", on_change=None):
+        """Label, path box and Browse button on one row. The parent needs column 1 to stretch.
+        on_change runs after a folder is picked."""
         label(parent, text).grid(row=row, column=0, sticky="w", padx=(18, 12), pady=8)
         entry(parent, var).grid(row=row, column=1, sticky="ew", padx=6, pady=8)
-        button(parent, "Browse", lambda: _pick(var, title), width=110).grid(
+        button(parent, "Browse", lambda: _pick(var, title, on_change), width=110).grid(
             row=row, column=2, padx=(6, 18), pady=8)
