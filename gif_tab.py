@@ -11,7 +11,7 @@ import gif_maker
 import icons
 import theme
 from media_utils import find_videos, probe_duration
-from widgets import Page, button, card, folder_row, label, line_edit, make_tree, muted
+from widgets import Page, button, card, folder_row, label, line_edit, make_tree, muted, remember
 
 MIN_CLIP = 0.1  # shortest allowed timeframe, in seconds
 ITEM_PATH = Qt.UserRole
@@ -119,6 +119,29 @@ class Timeline(QWidget):
         self.changed.emit(self.start, self.end)
 
 
+class VideoItem(QTreeWidgetItem):
+    """One row of the video list. Remembers what the sorting needs, so any column can be sorted."""
+
+    def __init__(self, path, folder):
+        self.name = str(path.relative_to(folder))
+        super().__init__([self.name, "", "whole video"])
+        self.path = str(path)
+        self.seconds = None   # length of the video, once read
+        self.clip = None      # (start, end) when a timeframe is set
+        self.setData(0, ITEM_PATH, self.path)
+
+    def _sort_key(self, column):
+        if column == 0:
+            return self.name.casefold()
+        if column == 1:
+            return self.seconds if self.seconds is not None else -1.0
+        return (0, 0.0) if self.clip is None else (1, self.clip[0])  # whole video first, then clips
+
+    def __lt__(self, other):
+        column = self.treeWidget().sortColumn() if self.treeWidget() else 0
+        return self._sort_key(column) < other._sort_key(column)
+
+
 class Preview(QLabel):
     """Shows a frame scaled to fit the box, and rescales it when the box is resized."""
 
@@ -194,7 +217,7 @@ class GifTab(Page):
         split.addWidget(right)
         split.setStretchFactor(0, 1)
         split.setStretchFactor(1, 1)
-        split.setSizes([theme.px(520), theme.px(620)])
+        remember("gif_split", split)  # the panels share the width evenly unless you have dragged them
         self.body.addWidget(split, 1)
 
         # Left: settings, actions, then the video list (which takes the remaining height)
@@ -214,16 +237,13 @@ class GifTab(Page):
         load_row.addStretch(1)
         grid.addLayout(load_row, 1, 0, 1, 3)
         grid.addWidget(muted("FPS"), 2, 0)
-        grid.addWidget(self.fps, 2, 1)
-        width_row = QHBoxLayout()
-        width_row.addWidget(muted("Width (px)"))
-        width_row.addWidget(self.width_px)
-        width_row.addStretch(1)
-        grid.addLayout(width_row, 2, 2)
-        grid.addWidget(muted("Quality"), 3, 0)
-        grid.addWidget(self.quality, 3, 1)
-        folder_row(grid, 4, "Save GIFs to", self.out_dir, "Save GIFs to...")
-        grid.addWidget(label("Higher quality = better colours, bigger file, slower", "caption", wrap=True), 5, 0, 1, 3)
+        grid.addWidget(self.fps, 2, 1, Qt.AlignLeft)
+        grid.addWidget(muted("Width (px)"), 3, 0)
+        grid.addWidget(self.width_px, 3, 1, Qt.AlignLeft)
+        grid.addWidget(muted("Quality"), 4, 0)
+        grid.addWidget(self.quality, 4, 1, Qt.AlignLeft)
+        folder_row(grid, 5, "Save GIFs to", self.out_dir, "Save GIFs to...")
+        grid.addWidget(label("Higher quality = better colours, bigger file, slower", "caption", wrap=True), 6, 0, 1, 3)
         left_col.addWidget(setup)
 
         actions = QGridLayout()
@@ -240,6 +260,9 @@ class GifTab(Page):
         list_layout = QVBoxLayout(list_card)
         list_layout.setContentsMargins(theme.px(8), theme.px(8), theme.px(8), theme.px(8))
         self.tree = make_tree(("File", "Length", "Timeframe"), (200, 80, 130))
+        self.tree.setSortingEnabled(True)  # click a heading to sort by it, click again to reverse
+        self.tree.sortByColumn(0, Qt.AscendingOrder)
+        remember("gif_tree", self.tree, header=True)
         self.tree.currentItemChanged.connect(self._on_current)
         list_layout.addWidget(self.tree)
         left_col.addWidget(list_card, 1)
@@ -251,7 +274,7 @@ class GifTab(Page):
         ev.setSpacing(theme.px(10))
         head = QHBoxLayout()
         head.addWidget(label("Timeframe", "heading"))
-        head.addWidget(muted("   Click a video in the list to set its clip"))
+        head.addWidget(muted("Click a video in the list to set its clip", wrap=True))
         head.addStretch(1)
         ev.addLayout(head)
 
@@ -263,8 +286,8 @@ class GifTab(Page):
         controls = QGridLayout()
         controls.setHorizontalSpacing(theme.px(8))
         controls.setVerticalSpacing(theme.px(8))
-        self.start_edit = line_edit(width=110)
-        self.end_edit = line_edit(width=110)
+        self.start_edit = line_edit(width=96)
+        self.end_edit = line_edit(width=96)
         self.start_edit.returnPressed.connect(self._apply_entries)
         self.end_edit.returnPressed.connect(self._apply_entries)
         controls.addWidget(muted("Start"), 0, 0)
@@ -313,18 +336,46 @@ class GifTab(Page):
             QMessageBox.critical(self, "Folder not found", "Choose a valid video folder.")
             return
         videos = find_videos(folder, self.recursive.isChecked())
+        self.tree.setSortingEnabled(False)
         self.tree.clear()
         self.items = {}
         self.durations = {}
         self.ranges = {}
         self.current = None
         for path in videos:
-            row = QTreeWidgetItem([str(path.relative_to(folder)), "", "whole video"])
-            row.setData(0, ITEM_PATH, str(path))
+            row = VideoItem(path, Path(folder))
             self.tree.addTopLevelItem(row)
             self.items[str(path)] = row
-        self.app.log(f"Loaded {len(videos)} video(s).")
+        self.tree.setSortingEnabled(True)
+        self.app.log(f"Loaded {len(videos)} video(s). Reading their lengths...")
         self._clear_editor()
+        self._read_all_lengths([str(p) for p in videos])
+
+    def _read_all_lengths(self, paths):
+        """Read every video's length in the background, so the Length column fills in by itself."""
+        def worker():
+            for iid in paths:
+                seconds = probe_duration(iid)
+                self.app.on_main(lambda iid=iid, seconds=seconds: self._set_duration(iid, seconds))
+            self.app.on_main(lambda: self.app.log("Finished reading video lengths."))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _set_duration(self, iid, seconds):
+        if iid not in self.items:
+            return  # the list was reloaded since
+        if seconds is None:
+            self.app.log(f"Could not read the length of {Path(iid).name}")
+            return
+        self.durations[iid] = seconds
+        row = self.items[iid]
+        row.seconds = seconds
+        row.setText(1, fmt_time(seconds))
+        self._resort()
+
+    def _resort(self):
+        header = self.tree.header()
+        self.tree.sortItems(header.sortIndicatorSection(), header.sortIndicatorOrder())
 
     def select_all(self):
         self.tree.selectAll()
@@ -348,13 +399,9 @@ class GifTab(Page):
             seconds = probe_duration(iid)
 
             def done():
-                if seconds is None:
-                    self.app.log(f"Could not read the length of {Path(iid).name}")
-                    return
-                self.durations[iid] = seconds
-                if iid in self.items:
-                    self.items[iid].setText(1, fmt_time(seconds))
-                then()
+                self._set_duration(iid, seconds)
+                if iid in self.durations:
+                    then()
             self.app.on_main(done)
 
         threading.Thread(target=worker, daemon=True).start()
@@ -382,7 +429,7 @@ class GifTab(Page):
         self.end_edit.setText(fmt_time(end))
         self.length_label.setText(f"Length: {end - start:.1f}s")
 
-    def _store(self, start, end):
+    def _store(self, start, end, resort=True):
         """Remember the timeframe for the current video (or clear it if it covers the whole video)."""
         iid = self.current
         if iid is None or iid not in self.items:
@@ -391,18 +438,22 @@ class GifTab(Page):
         row = self.items[iid]
         if start <= 0.05 and end >= duration - 0.05:
             self.ranges.pop(iid, None)
+            row.clip = None
             row.setText(2, "whole video")
         else:
             self.ranges[iid] = (start, end)
+            row.clip = (start, end)
             row.setText(2, f"{fmt_time(start)} to {fmt_time(end)}")
+        if resort:
+            self._resort()
 
     def _on_drag(self, start, end):
         self._update_labels(start, end)
-        self._store(start, end)
+        self._store(start, end, resort=False)  # re-sort once the handle is let go, not on every move
         self._preview_timer.start()
 
     def _on_release(self, start, end):
-        self._store(start, end)
+        self._store(start, end)  # sorts once the handle is let go
         self._request_previews()
 
     def _apply_entries(self):
@@ -431,7 +482,9 @@ class GifTab(Page):
         if not iid:
             return
         self.ranges.pop(iid, None)
+        self.items[iid].clip = None
         self.items[iid].setText(2, "whole video")
+        self._resort()
         self._show_editor(iid)
 
     def clear_selected_ranges(self):
@@ -439,7 +492,9 @@ class GifTab(Page):
         for row in selected:
             iid = row.data(0, ITEM_PATH)
             self.ranges.pop(iid, None)
+            row.clip = None
             row.setText(2, "whole video")
+        self._resort()
         if self.current and any(r.data(0, ITEM_PATH) == self.current for r in selected):
             self._show_editor(self.current)
 

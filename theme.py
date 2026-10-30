@@ -105,6 +105,20 @@ def _palette():
     return p
 
 
+def _grip_file(vertical_bar, colour):
+    """Three small dots, so a divider looks like something you can drag."""
+    path = os.path.join(tempfile.gettempdir(), f"mediatoolbox_grip_{'v' if vertical_bar else 'h'}_{colour.lstrip('#')}.png")
+    if not os.path.exists(path):
+        from PIL import Image, ImageDraw
+        img = Image.new("RGBA", (40, 40), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        for i in (-10, 0, 10):
+            x, y = (20, 20 + i) if vertical_bar else (20 + i, 20)
+            d.ellipse([x - 3, y - 3, x + 3, y + 3], fill=colour)
+        img.resize((12, 12), Image.LANCZOS).save(path)
+    return path.replace("\\", "/")
+
+
 def _chevron_file(colour):
     """A small down-pointing chevron, saved as a PNG so the style sheet can use it."""
     path = os.path.join(tempfile.gettempdir(), f"mediatoolbox_chevron_{colour.lstrip('#')}.png")
@@ -165,8 +179,12 @@ def stylesheet():
                   border-radius: {r_field}px; selection-background-color: {g['SELECT']};
                   selection-color: {g['TEXT']}; outline: 0; }}
     QTreeWidget::item {{ padding: {px(5)}px 0px; }}
+    QTreeWidget::indicator {{ width: {px(16)}px; height: {px(16)}px; border-radius: {px(4)}px;
+                             border: 2px solid {g['MUTED']}; background: {g['SECONDARY']}; }}
+    QTreeWidget::indicator:checked {{ background: {g['GREEN']}; border: 2px solid {g['GREEN']}; }}
     QHeaderView::section {{ background: {g['HEADING']}; color: {g['MUTED']}; border: none;
-                           border-bottom: 1px solid {g['CARD_BORDER']}; padding: {px(8)}px {px(10)}px;
+                           border-bottom: 1px solid {g['CARD_BORDER']};
+                           border-right: 2px solid {g['SECONDARY']}; padding: {px(8)}px {px(10)}px;
                            font-weight: bold; }}
     QPlainTextEdit#log {{ background: {g['FIELD']}; color: {g['TEXT']}; border: 1px solid {g['CARD_BORDER']};
                          border-radius: {r_field}px; padding: {px(8)}px; font-family: "{MONO}";
@@ -182,8 +200,13 @@ def stylesheet():
     QScrollBar::handle:hover {{ background: {g['SECONDARY_HOVER']}; }}
     QScrollBar::add-line, QScrollBar::sub-line {{ width: 0px; height: 0px; }}
     QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
-    QSplitter::handle {{ background: {g['APP_BG']}; }}
-    QSplitter::handle:hover {{ background: {g['CARD_BORDER']}; }}
+    QSplitter::handle:horizontal {{ background-color: {g['SECONDARY']}; background-repeat: no-repeat;
+                                   background-position: center;
+                                   background-image: url("{_grip_file(True, g['MUTED'])}"); }}
+    QSplitter::handle:vertical {{ background-color: {g['SECONDARY']}; background-repeat: no-repeat;
+                                 background-position: center;
+                                 background-image: url("{_grip_file(False, g['MUTED'])}"); }}
+    QSplitter::handle:hover {{ background-color: {g['GREEN']}; }}
     QToolTip {{ background: {g['CARD']}; color: {g['TEXT']}; border: 1px solid {g['CARD_BORDER']}; }}
     """
 

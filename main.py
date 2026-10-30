@@ -18,7 +18,8 @@ import theme
 import webp_convert
 from gif_tab import GifTab
 from themes import CORNER_STYLES, DEFAULT_THEME, FONT_CHOICES, PALETTES, SIZE_CHOICES
-from widgets import Bridge, Page, button, card, folder_row, label, line_edit, make_tree, muted
+from widgets import (Bridge, FolderChecklist, Page, button, card, folder_row, label, line_edit, make_tree, muted,
+                     remember, reset_remembered)
 
 ITEM_PATH = Qt.UserRole
 
@@ -85,6 +86,7 @@ class SilentPage(Page):
         layout = QVBoxLayout(list_card)
         layout.setContentsMargins(theme.px(8), theme.px(8), theme.px(8), theme.px(8))
         self.tree = make_tree(("File", "Reason"), (560, 260))
+        remember("silent_tree", self.tree, header=True)
         layout.addWidget(self.tree)
         self.body.addWidget(list_card, 1)
 
@@ -139,10 +141,10 @@ class SilentPage(Page):
 
 class ZipPage(Page):
     title = "Zip subfolders"
-    subtitle = "Each subfolder becomes its own zip file, named after the folder."
+    subtitle = "Each ticked subfolder becomes its own zip file, named after the folder."
 
     def build(self):
-        self.source = line_edit(placeholder="Choose the parent folder")
+        self.source = line_edit(placeholder="Choose a parent folder")
         self.dest = line_edit(placeholder="Empty = save the zips beside the folders")
         setup = card()
         grid = QGridLayout(setup)
@@ -150,14 +152,29 @@ class ZipPage(Page):
         grid.setHorizontalSpacing(theme.px(10))
         grid.setVerticalSpacing(theme.px(10))
         grid.setColumnStretch(1, 1)
-        folder_row(grid, 0, "Parent folder", self.source, "Choose the parent folder")
+        folder_row(grid, 0, "Parent folder", self.source, "Choose the parent folder", on_change=self.refresh)
+        self.source.editingFinished.connect(self.refresh)
         folder_row(grid, 1, "Save zips to", self.dest, "Choose where to save the zips")
         self.body.addWidget(setup)
 
-        run = button("Zip subfolders", "primary", icons.icon("zip", "#ffffff", 18))
+        list_card = card()
+        lv = QVBoxLayout(list_card)
+        lv.setContentsMargins(theme.px(16), theme.px(14), theme.px(16), theme.px(14))
+        self.checklist = FolderChecklist("Folders in this folder", recursive=False, key="zip_folders")
+        self.checklist.clear("Choose a parent folder to see its folders.")
+        lv.addWidget(self.checklist)
+        self.body.addWidget(list_card, 1)
+
+        run = button("Zip ticked folders", "primary", icons.icon("zip", "#ffffff", 18))
         run.clicked.connect(self.run)
         self.body.addWidget(run, 0, Qt.AlignLeft)
-        self.body.addStretch(1)
+
+    def refresh(self):
+        path = self.source.text().strip()
+        if Path(path).is_dir():
+            self.checklist.load(Path(path))
+        else:
+            self.checklist.clear("Choose a parent folder to see its folders.")
 
     def run(self):
         src = self.source.text().strip()
@@ -165,7 +182,11 @@ class ZipPage(Page):
         if not Path(src).is_dir():
             QMessageBox.critical(self, "Folder not found", "Choose a valid parent folder.")
             return
-        self.app.run_background(folder_tools.zip_subfolders, src, dst)
+        names = self.checklist.checked_names()
+        if not names:
+            QMessageBox.information(self, "Nothing ticked", "Tick at least one folder to zip.")
+            return
+        self.app.run_background(folder_tools.zip_subfolders, src, dst, only=names)
 
 
 class WebpPage(Page):
@@ -232,6 +253,7 @@ class WebpPage(Page):
         layout = QVBoxLayout(list_card)
         layout.setContentsMargins(theme.px(8), theme.px(8), theme.px(8), theme.px(8))
         self.tree = make_tree(("File", "Folder", "Size"), (300, 420, 110))
+        remember("webp_tree", self.tree, header=True)
         layout.addWidget(self.tree)
         self.body.addWidget(list_card, 1)
 
@@ -316,7 +338,7 @@ class WebpPage(Page):
 
 class CopyPage(Page):
     title = "Copy folder structure"
-    subtitle = "Recreate a folder's sub-folders in another location, without copying any files."
+    subtitle = "Recreate a folder's sub-folders in another location, without copying any files. Untick any to leave them out."
 
     def build(self):
         self.source = line_edit(placeholder="Choose the folder to copy")
@@ -327,14 +349,29 @@ class CopyPage(Page):
         grid.setHorizontalSpacing(theme.px(10))
         grid.setVerticalSpacing(theme.px(10))
         grid.setColumnStretch(1, 1)
-        folder_row(grid, 0, "Folder to copy", self.source, "Choose the folder to copy")
+        folder_row(grid, 0, "Folder to copy", self.source, "Choose the folder to copy", on_change=self.refresh)
+        self.source.editingFinished.connect(self.refresh)
         folder_row(grid, 1, "Copy into", self.dest, "Choose the destination")
         self.body.addWidget(setup)
+
+        list_card = card()
+        lv = QVBoxLayout(list_card)
+        lv.setContentsMargins(theme.px(16), theme.px(14), theme.px(16), theme.px(14))
+        self.checklist = FolderChecklist("Folders to copy", recursive=True, key="copy_folders")
+        self.checklist.clear("Choose a folder to see its sub-folders.")
+        lv.addWidget(self.checklist)
+        self.body.addWidget(list_card, 1)
 
         run = button("Copy folder structure", "primary", icons.icon("copy_folder", "#ffffff", 18))
         run.clicked.connect(self.run)
         self.body.addWidget(run, 0, Qt.AlignLeft)
-        self.body.addStretch(1)
+
+    def refresh(self):
+        path = self.source.text().strip()
+        if Path(path).is_dir():
+            self.checklist.load(Path(path))
+        else:
+            self.checklist.clear("Choose a folder to see its sub-folders.")
 
     def run(self):
         src = self.source.text().strip()
@@ -342,7 +379,8 @@ class CopyPage(Page):
         if not Path(src).is_dir() or not dst:
             QMessageBox.critical(self, "Missing input", "Choose a source folder and a destination.")
             return
-        self.app.run_background(folder_tools.copy_folder_structure, src, dst)
+        self.app.run_background(folder_tools.copy_folder_structure, src, dst,
+                                skip=self.checklist.unchecked_paths())
 
 
 class Tile(QFrame):
@@ -482,6 +520,7 @@ class App(QMainWindow):
 
     # ---------- layout ----------
     def _build(self):
+        reset_remembered()
         root = QWidget()
         root.setObjectName("root")
         h = QHBoxLayout(root)
@@ -506,6 +545,7 @@ class App(QMainWindow):
         split.addWidget(self._activity())
         split.setStretchFactor(0, 1)
         split.setSizes([theme.px(600), theme.px(150)])
+        remember("main_split", split)
         h.addWidget(split, 1)
 
         self.setCentralWidget(root)
@@ -541,6 +581,9 @@ class App(QMainWindow):
             v.addWidget(btn)
             self.nav[key] = (btn, icon_name)
         v.addStretch(1)
+        tip = label("Resize me: drag the bars with dots between panels, and the column edges in the lists. "
+                    "Sizes are remembered.", "caption", wrap=True)
+        v.addWidget(tip)
         return side
 
     def _activity(self):
