@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu,
                                QListWidget, QMessageBox, QScrollArea, QSlider, QSpinBox, QSplitter, QTreeWidget,
                                QTreeWidgetItem, QVBoxLayout, QWidget)
 
@@ -81,6 +81,7 @@ class NoWheelCombo(QComboBox):
 class CopyCard(QFrame):
     """One copy in the comparison box. Click it to open the video. Scales with the zoom setting."""
     clicked = Signal(str)
+    context_requested = Signal(str, object)
 
     def __init__(self, item, qimg):
         super().__init__()
@@ -137,6 +138,9 @@ class CopyCard(QFrame):
         if event.button() == Qt.LeftButton and self.rect().contains(event.position().toPoint()):
             self.clicked.emit(self.path)
         super().mouseReleaseEvent(event)
+
+    def contextMenuEvent(self, event):
+        self.context_requested.emit(self.path, event.globalPos())
 
 
 class DuplicatesPage(Page):
@@ -310,6 +314,8 @@ class DuplicatesPage(Page):
         self.tree.setSelectionMode(QTreeWidget.ExtendedSelection)
         self.tree.itemSelectionChanged.connect(self._on_selection)
         self.tree.itemDoubleClicked.connect(lambda _item, _c: self._open_selected())
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._tree_menu)
         remember("dup_tree", self.tree, header=True)
 
         self.btn_open = button("Open")
@@ -318,7 +324,7 @@ class DuplicatesPage(Page):
         self.btn_show = button("Explorer")
         self.btn_show.setToolTip("Show the selected video in Explorer")
         self.btn_show.clicked.connect(self._show_selected)
-        self.btn_offset = button("At offset")
+        self.btn_offset = button("Offset")
         self.btn_offset.setToolTip("Open the selected clip; the time it starts at in the source is shown in the log")
         self.btn_offset.clicked.connect(self._open_offset)
         self.btn_keep = button("Keep", "primary")
@@ -327,9 +333,16 @@ class DuplicatesPage(Page):
         self.btn_ignore = button("Ignore")
         self.btn_ignore.setToolTip("Hide this group now and in future scans")
         self.btn_ignore.clicked.connect(self._ignore_group)
+        self.btn_delete = button("Delete")
+        self.btn_delete.setToolTip("Send the selected files to the Recycle Bin")
+        self.btn_delete.clicked.connect(self._delete_selected)
+        self.btn_move = button("Move")
+        self.btn_move.setToolTip("Move or copy the selected groups and files to a folder you choose")
+        self.btn_move.clicked.connect(self._move_selected)
         acts = QHBoxLayout()
         acts.setSpacing(theme.px(6))
-        for widget in (self.btn_open, self.btn_show, self.btn_offset, self.btn_keep, self.btn_ignore):
+        for widget in (self.btn_open, self.btn_show, self.btn_offset, self.btn_keep, self.btn_ignore,
+                       self.btn_delete, self.btn_move):
             acts.addWidget(widget)
 
         middle = card()
@@ -401,7 +414,7 @@ class DuplicatesPage(Page):
     def _size_columns(self, split):
         total = split.width() or theme.px(1000)
         left = max(theme.px(290), int(total * 0.25))
-        middle = max(theme.px(400), int(total * 0.30))
+        middle = max(theme.px(440), int(total * 0.30))
         split.setSizes([left, middle, max(theme.px(200), total - left - middle)])
 
     def _show_mode(self, index):
@@ -706,6 +719,7 @@ class DuplicatesPage(Page):
                 widget = CopyCard(item, self.thumbs.get(item["path"]))
                 widget.set_zoom(self.zoom)
                 widget.clicked.connect(self._open_card)
+                widget.context_requested.connect(self._card_menu)
                 self.cards.append(widget)
                 self.compare_row.addWidget(widget)
         self.compare_row.addStretch(1)
@@ -715,6 +729,124 @@ class DuplicatesPage(Page):
             _open_path(path)
         except OSError as exc:
             self.app.log(f"ERROR: could not open the file: {exc}")
+
+    # ---------- marking, deleting and moving ----------
+    def _selected_targets(self):
+        """(group keys of selected group rows, paths of selected file rows)."""
+        group_keys, files = set(), []
+        for row in self.tree.selectedItems():
+            if row.parent() is None:
+                group_keys.add(row.data(0, ROW_GROUP))
+            else:
+                files.append(row.data(0, ROW_PATH))
+        return group_keys, files
+
+    def _group_of(self, path):
+        return next((g for g in self.groups if any(de._normal(i["path"]) == de._normal(path)
+                                                   for i in g["items"])), None)
+
+    def _mark_best(self, path):
+        group = self._group_of(path)
+        if group is None:
+            return
+        for item in group["items"]:
+            item["best"] = de._normal(item["path"]) == de._normal(path)
+        self.app.log(f"Marked {Path(path).name} as the best copy.")
+        self._render()
+
+    def _tree_menu(self, pos):
+        row = self.tree.itemAt(pos)
+        if row is not None and not row.isSelected():
+            self.tree.clearSelection()
+            row.setSelected(True)
+            self.tree.setCurrentItem(row)
+        group_keys, files = self._selected_targets()
+        menu = QMenu(self)
+        if row is not None and row.parent() is not None and len(files) == 1:
+            group = self.by_key.get(row.data(0, ROW_GROUP))
+            item = next((i for i in group["items"] if i["path"] == row.data(0, ROW_PATH)), None) if group else None
+            if item is not None and not item["best"]:
+                menu.addAction("Mark as best copy", lambda: self._mark_best(item["path"]))
+        if files:
+            menu.addAction(f"Send {len(files)} file(s) to Recycle Bin", self._delete_selected)
+        if group_keys or files:
+            menu.addAction("Move to folder...", self._move_selected)
+        if not menu.isEmpty():
+            menu.exec(self.tree.viewport().mapToGlobal(pos))
+
+    def _card_menu(self, path, global_pos):
+        menu = QMenu(self)
+        menu.addAction("Open", lambda: self._open_card(path))
+        group = self._group_of(path)
+        item = next((i for i in group["items"] if de._normal(i["path"]) == de._normal(path)), None) if group else None
+        if item is not None and not item["best"]:
+            menu.addAction("Mark as best copy", lambda: self._mark_best(path))
+        menu.addAction("Send to Recycle Bin", lambda: self._delete_paths([path]))
+        menu.exec(global_pos)
+
+    def _delete_selected(self):
+        _group_keys, files = self._selected_targets()
+        self._delete_paths(files)
+
+    def _delete_paths(self, files):
+        if not files:
+            self.app.log("Select one or more files to delete.")
+            return
+        answer = QMessageBox.question(self, "Send to Recycle Bin",
+                                      f"Send {len(files)} file(s) to the Recycle Bin?\n"
+                                      "Every removal is written to the deletions log.")
+        if answer != QMessageBox.Yes:
+            return
+        self._set_busy(True)
+        self.app.run_background(self._delete_job, files)
+
+    def _delete_job(self, files, log, progress):
+        try:
+            removed = de.recycle_files(files, log)
+            log(f"Sent {len(removed)} file(s) to the Recycle Bin. Log: {de.delete_log_path()}")
+            self.app.on_main(lambda: self._apply_removed(removed))
+        finally:
+            self.app.on_main(lambda: self._set_busy(False))
+
+    def _move_selected(self):
+        group_keys, files = self._selected_targets()
+        ops = de.plan_moves(self.groups, group_keys, files)
+        if not ops:
+            self.app.log("Select groups or files to move.")
+            return
+        target = QFileDialog.getExistingDirectory(self, "Move to folder")
+        if not target:
+            return
+        copies = sum(1 for op in ops if op["copy"])
+        answer = QMessageBox.question(
+            self, "Move",
+            f"{len(ops) - copies} file(s) will be moved and {copies} copied into:\n{target}\n\n"
+            "Files in several groups are copied (renamed '(copy)'), so each group keeps its own copy.")
+        if answer != QMessageBox.Yes:
+            return
+        self._set_busy(True)
+        self.app.run_background(self._move_job, ops, target)
+
+    def _move_job(self, ops, target, log, progress):
+        try:
+            moved = de.execute_moves(ops, target, log)
+            log(f"Done: {len(moved)} file(s) moved, the rest copied.")
+            self.app.on_main(lambda: self._apply_removed(moved))
+        finally:
+            self.app.on_main(lambda: self._set_busy(False))
+
+    def _apply_removed(self, paths):
+        """Take removed or moved files out of their groups. A group left with one file is dropped."""
+        gone = {de._normal(p) for p in paths}
+        kept = []
+        for group in self.groups:
+            items = [dict(i) for i in group["items"] if de._normal(i["path"]) not in gone]
+            if len(items) < 2:
+                continue
+            if not any(i["best"] for i in items):
+                max(items, key=lambda i: (i["pixels"], i["bitrate"], i["size"]))["best"] = True
+            kept.append({"key": de.group_key([i["path"] for i in items]), "items": items})
+        self._set_groups(kept)
 
     # ---------- selection and actions ----------
     def _selection(self):
@@ -739,6 +871,9 @@ class DuplicatesPage(Page):
         self.btn_offset.setEnabled(has_file and item["offset"] > 0)
         self.btn_keep.setEnabled(group is not None)
         self.btn_ignore.setEnabled(group is not None)
+        group_keys, files = self._selected_targets()
+        self.btn_delete.setEnabled(bool(files))
+        self.btn_move.setEnabled(bool(group_keys or files))
 
     def _open_selected(self):
         _group, item = self._selection()

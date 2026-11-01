@@ -472,3 +472,89 @@ def format_seconds(seconds):
     h, rem = divmod(seconds, 3600)
     m, s = divmod(rem, 60)
     return f"{h:02d}:{m:02d}:{s:02d}"
+
+
+def recycle_files(paths, log):
+    """Send files to the Recycle Bin (never permanently deleted) and log each one. Returns the paths sent."""
+    from send2trash import send2trash
+    log_file = delete_log_path()
+    write_header = not log_file.exists()
+    sent = []
+    with open(log_file, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        if write_header:
+            writer.writerow(DELETE_LOG_HEADER)
+        for path in paths:
+            if not os.path.exists(path):
+                log(f"Skipped (already gone): {path}")
+                continue
+            size = os.path.getsize(path)
+            send2trash(path)
+            writer.writerow([datetime.now().isoformat(timespec="seconds"), "Recycle Bin", path, size, "", "", ""])
+            log(f"Recycle Bin: {path}")
+            sent.append(path)
+    return sent
+
+
+def plan_moves(groups, group_keys, file_paths):
+    """What to move or copy, and where it goes inside the chosen folder.
+
+    - A file in a selected group goes into that group's subfolder ("Group N - name"). If the file is in more
+      than one group, it is copied (not moved), so every group keeps its own copy.
+    - A file selected on its own goes into the top of the chosen folder (copied if it is in several groups).
+    Returns a list of {"src", "sub", "copy"} dicts."""
+    membership = {}
+    for group in groups:
+        for item in group["items"]:
+            k = _normal(item["path"])
+            membership[k] = membership.get(k, 0) + 1
+    ops, handled = [], set()
+    for number, group in enumerate(groups, 1):
+        if group["key"] not in group_keys:
+            continue
+        best = next((i for i in group["items"] if i["best"]), group["items"][0])
+        sub = f"Group {number} - {Path(best['path']).stem}"
+        for item in group["items"]:
+            k = _normal(item["path"])
+            ops.append({"src": item["path"], "sub": sub, "copy": membership.get(k, 0) > 1})
+            handled.add(k)
+    for path in file_paths:
+        k = _normal(path)
+        if k in handled:
+            continue
+        handled.add(k)
+        ops.append({"src": path, "sub": None, "copy": membership.get(k, 0) > 1})
+    return ops
+
+
+def _unique_name(folder, name):
+    """name, or name with " (2)", " (3)"... before the extension if that name is taken."""
+    if not (folder / name).exists():
+        return name
+    stem, suffix = Path(name).stem, Path(name).suffix
+    n = 2
+    while (folder / f"{stem} ({n}){suffix}").exists():
+        n += 1
+    return f"{stem} ({n}){suffix}"
+
+
+def execute_moves(ops, target, log):
+    """Carry out plan_moves. Returns the source paths that were moved (copies leave their source in place)."""
+    moved = []
+    for op in ops:
+        src = Path(op["src"])
+        if not src.exists():
+            log(f"Skipped (already gone): {src}")
+            continue
+        folder = Path(target) / op["sub"] if op["sub"] else Path(target)
+        folder.mkdir(parents=True, exist_ok=True)
+        if op["copy"]:
+            name = _unique_name(folder, f"{src.stem} (copy){src.suffix}")
+            shutil.copy2(src, folder / name)
+            log(f"Copied {src.name} -> {folder / name}")
+        else:
+            name = _unique_name(folder, src.name)
+            shutil.move(str(src), str(folder / name))
+            moved.append(str(src))
+            log(f"Moved {src.name} -> {folder / name}")
+    return moved
