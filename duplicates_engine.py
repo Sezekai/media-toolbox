@@ -117,14 +117,30 @@ def latest_release():
     return data.get("tag_name", ""), data.get("assets", [])
 
 
+def _pc_architecture():
+    """'arm64' or 'x64' for this PC, from the Windows environment."""
+    raw = (os.environ.get("PROCESSOR_ARCHITEW6432") or os.environ.get("PROCESSOR_ARCHITECTURE") or "").upper()
+    return "arm64" if "ARM64" in raw else "x64"
+
+
 def pick_cli_asset(assets):
-    """The Windows CLI zip. Matched on the name, which is confirmed on the first real install."""
+    """The Windows CLI zip for this PC's processor (x64 or arm64). Running an arm64 build on an x64 PC
+    fails with WinError 216, so the architecture must match."""
+    arch = _pc_architecture()
+    other = "x64" if arch == "arm64" else "arm64"
+    candidates = []
     for asset in assets:
         name = asset.get("name", "").lower()
         if name.endswith(".zip") and "cli" in name and "win" in name:
+            candidates.append((asset, name))
+    for asset, name in candidates:
+        if arch in name:
             return asset
+    for asset, name in candidates:
+        if other not in name:
+            return asset  # a build with no architecture in its name
     names = ", ".join(a.get("name", "?") for a in assets) or "none"
-    raise RuntimeError(f"No Windows CLI zip found in the latest release. Assets: {names}")
+    raise RuntimeError(f"No Windows CLI zip for {arch} in the latest release. Assets: {names}")
 
 
 def check_update():
