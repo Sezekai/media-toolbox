@@ -69,11 +69,11 @@ class SilentPage(Page):
 
         actions = QHBoxLayout()
         actions.setSpacing(theme.px(8))
-        scan = button("Scan", "primary", icons.icon("search", "#ffffff", 18))
+        scan = button("Scan", "primary", icons.icon("search", theme.ON_GREEN, 18))
         scan.clicked.connect(self.scan)
         select = button("Select all")
         select.clicked.connect(lambda: self.tree.selectAll())
-        move = button("Move selected", "primary", icons.icon("move", "#ffffff", 18))
+        move = button("Move selected", "primary", icons.icon("move", theme.ON_GREEN, 18))
         move.clicked.connect(self.move_selected)
         actions.addWidget(scan)
         actions.addWidget(select)
@@ -166,7 +166,7 @@ class ZipPage(Page):
         lv.addWidget(self.checklist)
         self.body.addWidget(list_card, 1)
 
-        run = button("Zip ticked folders", "primary", icons.icon("zip", "#ffffff", 18))
+        run = button("Zip ticked folders", "primary", icons.icon("zip", theme.ON_GREEN, 18))
         run.clicked.connect(self.run)
         self.body.addWidget(run, 0, Qt.AlignLeft)
 
@@ -262,7 +262,7 @@ class WebpPage(Page):
         actions.setSpacing(theme.px(8))
         scan = button("Scan folder")
         scan.clicked.connect(self.scan)
-        convert_all = button("Convert all listed", "primary", icons.icon("image", "#ffffff", 18))
+        convert_all = button("Convert all listed", "primary", icons.icon("image", theme.ON_GREEN, 18))
         convert_all.clicked.connect(lambda: self.convert(False))
         convert_sel = button("Convert selected", "primary")
         convert_sel.clicked.connect(lambda: self.convert(True))
@@ -363,7 +363,7 @@ class CopyPage(Page):
         lv.addWidget(self.checklist)
         self.body.addWidget(list_card, 1)
 
-        run = button("Copy folder structure", "primary", icons.icon("copy_folder", "#ffffff", 18))
+        run = button("Copy folder structure", "primary", icons.icon("copy_folder", theme.ON_GREEN, 18))
         run.clicked.connect(self.run)
         self.body.addWidget(run, 0, Qt.AlignLeft)
 
@@ -557,7 +557,7 @@ class App(QMainWindow):
     def _sidebar(self):
         side = QFrame()
         side.setObjectName("sidebar")
-        side.setFixedWidth(theme.px(240))
+        side.setFixedWidth(theme.px(232))
         v = QVBoxLayout(side)
         v.setContentsMargins(theme.px(18), theme.px(22), theme.px(14), theme.px(18))
         brand = QHBoxLayout()
@@ -572,12 +572,11 @@ class App(QMainWindow):
         brand.addLayout(names)
         brand.addStretch(1)
         v.addLayout(brand)
-        v.addSpacing(theme.px(22))
-        v.addWidget(label("TOOLS", "section"))
-        v.addSpacing(theme.px(6))
+        v.addSpacing(theme.px(16))
         self.nav = {}
         for key, text, icon_name in NAV:
             btn = button(text)
+            btn.setFocusPolicy(Qt.NoFocus)  # the active tool shows its state, not a focus ring
             btn.setProperty("nav", "true")
             btn.setIconSize(QSize(theme.px(22), theme.px(22)))
             btn.clicked.connect(lambda _c=False, k=key: self.show_page(k))

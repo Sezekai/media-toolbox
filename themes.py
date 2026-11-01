@@ -1,8 +1,8 @@
 """Colour themes. Each one is based on a reference design from the Appearance brief."""
 
-DEFAULT_THEME = "Default Green"
+DEFAULT_THEME = "Graphite"
 
-# Keys are the colour names used across the app. GREEN is the main action colour and ON_GREEN is the text on it.
+# Keys are the colour names used across the app. GREEN is the accent (the main action colour) and ON_GREEN is the text on it.
 COLOUR_NAMES = (
     "APP_BG", "SIDEBAR", "CARD", "CARD_BORDER", "FIELD", "TRACK", "NAV_HOVER", "NAV_ACTIVE",
     "TEXT", "MUTED", "GREEN", "GREEN_HOVER", "ON_GREEN", "SECONDARY", "SECONDARY_HOVER",
@@ -10,6 +10,13 @@ COLOUR_NAMES = (
 )
 
 PALETTES = {
+    # The default: a calm graphite workbench with one blue accent (see DESIGN.md)
+    "Graphite": dict(
+        APP_BG="#101113", SIDEBAR="#16171a", CARD="#1d1e22", CARD_BORDER="#2e3036", FIELD="#141517",
+        TRACK="#2c2e34", NAV_HOVER="#23252a", NAV_ACTIVE="#26354a", TEXT="#eef0f4", MUTED="#9ba1ad",
+        GREEN="#3b9cf0", GREEN_HOVER="#5aaef5", ON_GREEN="#06121f", SECONDARY="#2b2d33",
+        SECONDARY_HOVER="#383b43", RED="#c0392b", RED_HOVER="#d9493a", SELECT="#1f3550", HEADING="#1a1b1f",
+    ),
     "Default Green": dict(
         APP_BG="#0d0d0f", SIDEBAR="#121215", CARD="#1b1b20", CARD_BORDER="#2a2a31", FIELD="#101014",
         TRACK="#2a2a33", NAV_HOVER="#1f1f25", NAV_ACTIVE="#2b2b34", TEXT="#f5f5f7", MUTED="#a4a4ae",

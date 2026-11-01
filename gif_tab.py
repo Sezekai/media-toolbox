@@ -231,7 +231,7 @@ class GifTab(Page):
         load_row = QHBoxLayout()
         load_row.addWidget(self.recursive)
         load_row.addSpacing(theme.px(16))
-        load_btn = button("Load videos", "primary", icons.icon("gif", "#ffffff", 18))
+        load_btn = button("Load videos", "primary", icons.icon("gif", theme.ON_GREEN, 18))
         load_btn.clicked.connect(self.load_videos)
         load_row.addWidget(load_btn)
         load_row.addStretch(1)
@@ -252,7 +252,7 @@ class GifTab(Page):
         actions.addWidget(self._button("Select all", self.select_all), 0, 0)
         actions.addWidget(self._button("Clear timeframes", self.clear_selected_ranges), 0, 1)
         actions.addWidget(self._button("Convert selected", lambda: self.convert(True), "primary",
-                                       icons.icon("gif", "#ffffff", 18)), 1, 0)
+                                       icons.icon("gif", theme.ON_GREEN, 18)), 1, 0)
         actions.addWidget(self._button("Convert all", lambda: self.convert(False), "primary"), 1, 1)
         left_col.addLayout(actions)
 

@@ -19,7 +19,7 @@ RADIUS = 1.0        # corners
 CURRENT_THEME = DEFAULT_THEME
 
 # Every text size is one fixed base multiplied by SIZE, so the sizes always keep their proportions.
-TEXT_BASE = {"caption": 12, "body": 14, "heading": 17, "title": 26, "sample": 20}
+TEXT_BASE = {"caption": 12, "body": 14, "heading": 16, "title": 24, "sample": 20}
 TEXT_FLOOR = 8      # px, the smallest text ever drawn
 
 
@@ -135,7 +135,7 @@ def stylesheet():
     """The whole look of the app, built from the current colours and sizes."""
     g = globals()
     pad_v, pad_h = px(7), px(14)
-    r_ctrl, r_field, r_card = radius(10), radius(8), radius(14)
+    r_ctrl, r_field, r_card = radius(8), radius(7), radius(10)
     bar = px(12)
     return f"""
     QWidget {{ color: {g['TEXT']}; font-family: "{FAMILY}"; font-size: {text_px('body')}px; }}
@@ -149,23 +149,27 @@ def stylesheet():
     QLabel[role="section"] {{ color: {g['MUTED']}; font-size: {text_px('caption')}px; font-weight: bold; }}
     QFrame#sidebar {{ background: {g['SIDEBAR']}; }}
     QFrame#card {{ background: {g['CARD']}; border: 1px solid {g['CARD_BORDER']}; border-radius: {r_card}px; }}
-    QFrame#preview {{ background: {g['FIELD']}; border-radius: {radius(12)}px; }}
-    QPushButton {{ background: {g['SECONDARY']}; color: {g['TEXT']}; border: none; border-radius: {r_ctrl}px;
-                  padding: {pad_v}px {pad_h}px; font-weight: bold; }}
+    QFrame#preview {{ background: {g['FIELD']}; border-radius: {radius(10)}px; }}
+    QPushButton {{ background: {g['SECONDARY']}; color: {g['TEXT']}; border: 1px solid transparent; border-radius: {r_ctrl}px;
+                  padding: {pad_v}px {pad_h}px; min-height: {px(16)}px; font-weight: bold; }}
+    QPushButton:focus {{ border: 1px solid {g['GREEN']}; }}
     QPushButton:hover {{ background: {g['SECONDARY_HOVER']}; }}
     QPushButton:disabled {{ color: {g['MUTED']}; }}
     QPushButton[kind="primary"] {{ background: {g['GREEN']}; color: {g['ON_GREEN']}; }}
+    QPushButton[kind="primary"]:disabled {{ background: {g['SECONDARY']}; color: {g['MUTED']}; }}
     QPushButton[kind="primary"]:hover {{ background: {g['GREEN_HOVER']}; }}
     QPushButton[kind="danger"] {{ background: {g['RED']}; color: #ffffff; }}
     QPushButton[kind="danger"]:hover {{ background: {g['RED_HOVER']}; }}
     QPushButton[nav="true"] {{ background: transparent; color: {g['MUTED']}; text-align: left;
                               padding: {px(11)}px {px(14)}px; border-radius: {r_ctrl}px; }}
     QPushButton[nav="true"]:hover {{ background: {g['NAV_HOVER']}; }}
-    QPushButton[nav="true"][active="true"] {{ background: {g['NAV_ACTIVE']}; color: {g['TEXT']}; }}
-    QLineEdit, QComboBox {{ background: {g['FIELD']}; color: {g['TEXT']}; border: 1px solid {g['CARD_BORDER']};
+    QPushButton[nav="true"][active="true"] {{ background: {g['NAV_ACTIVE']}; color: {g['TEXT']}; font-weight: bold; }}
+    QLineEdit, QComboBox, QSpinBox {{ background: {g['FIELD']}; color: {g['TEXT']}; border: 1px solid {g['CARD_BORDER']};
                            border-radius: {r_field}px; padding: {pad_v}px {pad_h}px; min-height: 1em;
                            selection-background-color: {g['SELECT']}; }}
-    QLineEdit:focus, QComboBox:focus {{ border: 1px solid {g['GREEN']}; }}
+    QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{ border: 1px solid {g['GREEN']}; }}
+    QSpinBox::up-button, QSpinBox::down-button {{ width: 0px; border: none; }}
+    QLineEdit:disabled, QComboBox:disabled {{ color: {g['MUTED']}; }}
     QComboBox {{ padding-right: {px(30)}px; }}
     QComboBox::drop-down {{ border: none; width: {px(30)}px; }}
     QComboBox::down-arrow {{ image: url("{_chevron_file(g['MUTED'])}"); width: {px(10)}px; height: {px(6)}px; }}

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu,
                                QListWidget, QMessageBox, QScrollArea, QSlider, QSpinBox, QSplitter, QTreeWidget,
                                QTreeWidgetItem, QVBoxLayout, QWidget)
 
@@ -254,7 +254,7 @@ class DuplicatesPage(Page):
 
         self.engine_label = muted("", wrap=True)
         self.ffmpeg_label = muted("", wrap=True)
-        self.install_btn = button("Install engine", "primary", icons.icon("move", "#ffffff", 18))
+        self.install_btn = button("Install engine", "primary", icons.icon("move", theme.ON_GREEN, 18))
         self.install_btn.clicked.connect(self._install_engine)
         self.update_btn = button("Check for update")
         self.update_btn.clicked.connect(self._check_update)
@@ -274,7 +274,7 @@ class DuplicatesPage(Page):
                            "folder when you install it. It is not part of this app.", wrap=True))
         self.left.addWidget(eng)
 
-        self.scan_btn = button("Scan", "primary", icons.icon("search", "#ffffff", 18))
+        self.scan_btn = button("Scan", "primary", icons.icon("search", theme.ON_GREEN, 18))
         self.scan_btn.clicked.connect(self._scan)
         self.cancel_btn = button("Cancel")
         self.cancel_btn.setEnabled(False)
@@ -291,7 +291,11 @@ class DuplicatesPage(Page):
         left_scroll.setWidgetResizable(True)
         left_scroll.setFrameShape(QFrame.NoFrame)
         left_scroll.setWidget(left_host)
-        left_scroll.setMinimumWidth(theme.px(290))
+        left_scroll.setMinimumWidth(theme.px(330))
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # the setup column never scrolls sideways
+        for kind in (QLineEdit, QComboBox, QSpinBox):
+            for field in left_host.findChildren(kind):
+                field.setMinimumWidth(theme.px(80))  # fields shrink to fit instead of pushing the column wider
         self.left_scroll = left_scroll
 
         # ----- middle column: groups and their files -----
@@ -339,11 +343,15 @@ class DuplicatesPage(Page):
         self.btn_move = button("Move")
         self.btn_move.setToolTip("Move or copy the selected groups and files to a folder you choose")
         self.btn_move.clicked.connect(self._move_selected)
-        acts = QHBoxLayout()
-        acts.setSpacing(theme.px(6))
-        for widget in (self.btn_open, self.btn_show, self.btn_offset, self.btn_keep, self.btn_ignore,
-                       self.btn_delete, self.btn_move):
-            acts.addWidget(widget)
+        # Two rows of buttons (4 and 3), so the middle column fits in a narrow window
+        acts = QGridLayout()
+        acts.setHorizontalSpacing(theme.px(6))
+        acts.setVerticalSpacing(theme.px(6))
+        for i, widget in enumerate((self.btn_open, self.btn_show, self.btn_offset, self.btn_keep,
+                                    self.btn_ignore, self.btn_delete, self.btn_move)):
+            acts.addWidget(widget, i // 4, i % 4)
+        for col in range(4):
+            acts.setColumnStretch(col, 1)
 
         middle = card()
         mv = QVBoxLayout(middle)
@@ -413,9 +421,9 @@ class DuplicatesPage(Page):
     # ---------- small helpers ----------
     def _size_columns(self, split):
         total = split.width() or theme.px(1000)
-        left = max(theme.px(290), int(total * 0.25))
-        middle = max(theme.px(440), int(total * 0.30))
-        split.setSizes([left, middle, max(theme.px(200), total - left - middle)])
+        left = max(theme.px(330), int(total * 0.28))
+        middle = max(theme.px(340), int(total * 0.34))
+        split.setSizes([left, middle, max(theme.px(300), total - left - middle)])
 
     def _show_mode(self, index):
         self.panel_a.setVisible(index == 0)
@@ -713,7 +721,7 @@ class DuplicatesPage(Page):
         self.cards = []
         group, _item = self._selection()
         if group is None:
-            self.compare_row.addWidget(muted("Select a group to see its copies side by side."))
+            self.compare_row.addWidget(muted("Select a group to see its copies side by side.", wrap=True))
         else:
             for item in sorted(group["items"], key=lambda i: (not i["best"], -i["pixels"])):
                 widget = CopyCard(item, self.thumbs.get(item["path"]))
