@@ -237,14 +237,32 @@ def build_command(engine, folders, options, db_path, out_file):
     return cmd
 
 
+STAGE_RE = re.compile(r"\(([^()]*?)\s+(\d+)/(\d+)\)\s*$")  # trailing "(Hashing 3/100)" on a progress line
+POS_RE = re.compile(r"\]\s+(\d+)/(\d+)")                  # the overall "pos/max" after the percentage
+
+
+def parse_progress(line):
+    """(done, total, stage) from a progress line, or None. The engine restarts its count for each stage,
+    so the stage's own numbers are used when it reports them; otherwise the overall count."""
+    if not PROGRESS_RE.search(line):
+        return None
+    stage = STAGE_RE.search(line)
+    if stage:
+        return int(stage.group(2)), int(stage.group(3)), stage.group(1).strip() or "Scanning"
+    pos = POS_RE.search(line)
+    if pos:
+        return int(pos.group(1)), int(pos.group(2)), "Scanning"
+    return None
+
+
 def run_engine(cmd, state, log, progress):
-    """Run the CLI, stream its output to the log and report its percentage. Returns the exit code."""
+    """Run the CLI, stream its output to the log and report progress. Returns the exit code."""
     state.proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE, creationflags=_NO_WINDOW)
     try:
         # Progress is written with carriage returns, so split on both \r and \n.
         buffer = ""
-        last_pct = -1
+        last = None
         while True:
             chunk = state.proc.stderr.read(512)
             if not chunk:
@@ -256,12 +274,12 @@ def run_engine(cmd, state, log, progress):
                 line = line.strip()
                 if not line:
                     continue
-                match = PROGRESS_RE.search(line)
-                if match:
-                    pct = int(match.group(1))
-                    if pct != last_pct:
-                        last_pct = pct
-                        progress(pct, 100, "Comparing")
+                parsed = parse_progress(line)
+                if parsed:
+                    done, total, stage = parsed
+                    if (done, total, stage) != last and total > 0:
+                        last = (done, total, stage)
+                        progress(done, total, stage)
                 elif not line.startswith("Results written"):
                     log(line)
         state.proc.stdout.read()  # drain
