@@ -62,6 +62,22 @@ def _size_text(n):
     return f"{n / 1024 ** 3:.2f} GB"
 
 
+class NoWheelSlider(QSlider):
+    """Scrolling over a slider scrolls the page around it, instead of moving the slider."""
+    def wheelEvent(self, event):
+        event.ignore()
+
+
+class NoWheelSpin(QSpinBox):
+    def wheelEvent(self, event):
+        event.ignore()
+
+
+class NoWheelCombo(QComboBox):
+    def wheelEvent(self, event):
+        event.ignore()
+
+
 class CopyCard(QFrame):
     """One copy in the comparison box. Click it to open the video. Scales with the zoom setting."""
     clicked = Signal(str)
@@ -146,7 +162,7 @@ class DuplicatesPage(Page):
         self.left.setContentsMargins(0, 0, theme.px(12), 0)
         self.left.setSpacing(theme.px(10))
 
-        self.mode = QComboBox()
+        self.mode = NoWheelCombo()
         self.mode.addItem("Find duplicates in a folder", "folder")
         self.mode.addItem("Check file(s) against a library", "library")
         self.mode.setCurrentIndex(0 if opts.get("mode", "folder") == "folder" else 1)
@@ -198,7 +214,7 @@ class DuplicatesPage(Page):
         self._show_mode(self.mode.currentIndex())
         self.left.addWidget(mode_card)
 
-        self.percent = QSlider(Qt.Horizontal)
+        self.percent = NoWheelSlider(Qt.Horizontal)
         self.percent.setRange(50, 100)
         self.percent.setValue(int(opts.get("percent", 95)))
         self.percent_label = muted("")
@@ -272,15 +288,16 @@ class DuplicatesPage(Page):
         left_scroll.setFrameShape(QFrame.NoFrame)
         left_scroll.setWidget(left_host)
         left_scroll.setMinimumWidth(theme.px(290))
+        self.left_scroll = left_scroll
 
         # ----- middle column: groups and their files -----
-        self.filter = QComboBox()
+        self.filter = NoWheelCombo()
         for text, value in (("All match types", None), ("Exact", "exact"), ("Near", "near"),
                             ("Partial clip (audio)", "partial_audio"),
                             ("Partial clip (visual AI)", "partial_visual")):
             self.filter.addItem(text, value)
         self.filter.currentIndexChanged.connect(lambda _i: self._render())
-        self.sort = QComboBox()
+        self.sort = NoWheelCombo()
         self.sort.addItem("Largest first", "size")
         self.sort.addItem("Most similar", "similarity")
         self.sort.currentIndexChanged.connect(lambda _i: self._render())
@@ -340,7 +357,7 @@ class DuplicatesPage(Page):
         self.compare_scroll.setWidget(self.compare_host)
         self.compare_scroll.viewport().installEventFilter(self)  # Ctrl + wheel zooms the cards
 
-        self.zoom_slider = QSlider(Qt.Horizontal)
+        self.zoom_slider = NoWheelSlider(Qt.Horizontal)
         self.zoom_slider.setRange(int(ZOOM_MIN * 100), int(ZOOM_MAX * 100))
         self.zoom_slider.setValue(round(self.zoom * 100))
         self.zoom_slider.valueChanged.connect(lambda v: self._set_zoom(v / 100))
@@ -400,7 +417,7 @@ class DuplicatesPage(Page):
             layout.setSpacing(theme.px(6))
 
     def _percent_spin(self, value, low, high):
-        spin = QSpinBox()
+        spin = NoWheelSpin()
         spin.setRange(low, high)
         spin.setSuffix("%")
         spin.setValue(int(value))
