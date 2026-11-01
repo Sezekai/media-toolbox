@@ -46,6 +46,9 @@ def _draw(name, colour, px):
         box(3, 4, 21, 20, 3)
         line([(5, 17), (10, 11.5), (13.5, 15.5), (16, 13), (19, 17)])
         dot(8.5, 8.5, 1.6)
+    elif name == "duplicate":
+        box(3, 7, 15, 19, 2)
+        box(9, 3, 21, 15, 2)
     elif name == "copy_folder":
         folder()
         line([(12, 11), (12, 16)])

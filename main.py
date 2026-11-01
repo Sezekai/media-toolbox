@@ -16,6 +16,7 @@ import settings
 import silent_videos
 import theme
 import webp_convert
+from duplicates_tab import DuplicatesPage
 from gif_tab import GifTab
 from themes import CORNER_STYLES, DEFAULT_THEME, FONT_CHOICES, PALETTES, SIZE_CHOICES
 from widgets import (Bridge, FolderChecklist, Page, button, card, folder_row, label, line_edit, make_tree, muted,
@@ -491,6 +492,7 @@ class AppearancePage(Page):
 NAV = [
     ("silent", "Silent videos", "silent"),
     ("gif", "GIF maker", "gif"),
+    ("dupes", "Duplicate videos", "duplicate"),
     ("zip", "Zip subfolders", "zip"),
     ("webp", "WebP to JPG", "image"),
     ("copy", "Copy folder structure", "copy_folder"),
@@ -499,6 +501,7 @@ NAV = [
 PAGES = {
     "silent": SilentPage,
     "gif": GifTab,
+    "dupes": DuplicatesPage,
     "zip": ZipPage,
     "webp": WebpPage,
     "copy": CopyPage,
