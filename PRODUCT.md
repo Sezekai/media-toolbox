@@ -19,11 +19,11 @@ One portable program that gathers several small file tools behind a single sideb
 Used on the owner's Windows PC, usually with folders on local drives. Long-running jobs (scans, conversions, the duplicate engine) run in the background and report progress and errors in the shared log. The duplicate tool downloads its detection engine (vdf-cli) and FFmpeg at runtime into the app data folder; neither is bundled.
 
 ## Capabilities and Constraints
-- Tools: Silent videos, GIF maker, Zip subfolders, WebP to JPG, Copy folder structure, Duplicate videos, Appearance.
+- Tools: Silent videos, GIF maker, Zip subfolders, WebP to JPG, Copy folder structure, Duplicate videos.
 - Removals go to the Recycle Bin and are logged; nothing is permanently deleted.
 - Must stay a single portable .exe built with PyInstaller (see build.bat and the GitHub Actions workflow).
 - Must keep the existing tools working; new tools are added alongside them.
-- Themes are chosen by the user in Appearance; the default is dark.
+- One fixed compact dark look; the owner chose to drop theme, font and size options.
 - The duplicate engine is AGPLv3 and is never bundled in the repository or the .exe.
 - Undecided: none recorded.
 

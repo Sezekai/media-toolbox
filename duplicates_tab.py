@@ -10,16 +10,21 @@ from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMenu,
-                               QListWidget, QMessageBox, QScrollArea, QSlider, QSpinBox, QSplitter, QTreeWidget,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu,
+                               QListWidget, QMessageBox, QScrollArea, QSlider, QSpinBox, QSplitter, QToolButton, QTreeWidget,
                                QTreeWidgetItem, QVBoxLayout, QWidget)
 
 import duplicates_engine as de
 import icons
 import settings
 import theme
-from widgets import (Page, add_folder, button, card, divider, folder_row, label, line_edit, muted, remember,
-                     results_panel, tool_row, toolbar)
+from widgets import (ElidedLabel, Page, add_folder, button, empty_state, field_label, label, line_edit, muted,
+                     remember, results_panel, tool_row, toolbar)
+
+LEFT_W = 290          # the options column (including room for its scroll bar)
+MIDDLE_MIN_W = 372    # the groups list
+COMPARE_MIN_W = 262   # the comparison
+CARD_W = 250          # a copy card at 100% size
 
 ROW_PATH = Qt.UserRole
 ROW_GROUP = Qt.UserRole + 1
@@ -80,60 +85,83 @@ class NoWheelCombo(QComboBox):
 
 
 class CopyCard(QFrame):
-    """One copy in the comparison box. Click it to open the video. Scales with the zoom setting."""
+    """One copy in the comparison: a preview, the name and the details that tell the copies apart.
+    Click it to open the video; right-click for more. Everything scales with the size slider."""
     clicked = Signal(str)
     context_requested = Signal(str, object)
 
     def __init__(self, item, qimg):
         super().__init__()
-        self.setObjectName("card")
+        self.setObjectName("copy")
         self.path = item["path"]
         self.pixmap = QPixmap.fromImage(qimg) if qimg is not None else None
         self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip("Click to open this video")
+        self.setToolTip(f"{item['path']}\nClick to open. Right-click for more.")
 
         v = QVBoxLayout(self)
         self.v = v
         self.thumb = QLabel()
+        self.thumb.setObjectName("thumb")
         self.thumb.setAlignment(Qt.AlignCenter)
+        self.thumb.setProperty("role", "empty")
         v.addWidget(self.thumb)
-        self.title = label(item["name"] + ("  (picked file)" if item.get("picked") else ""), "heading", wrap=True)
-        self.folder = muted(item["folder"], wrap=True)
-        self.details = [muted(line, wrap=True) for line in self._detail_lines(item)]
+
+        self.title = label(item["name"], "heading", wrap=True)
         v.addWidget(self.title)
+        self.folder = ElidedLabel(item["folder"], "caption")
         v.addWidget(self.folder)
-        for widget in self.details:
-            v.addWidget(widget)
+        tags = [text for text, on in (("Best copy", item["best"]), ("Picked file", item.get("picked"))) if on]
+        self.badge = label("   ".join(tags), "badge") if tags else None
+        if self.badge:
+            v.addWidget(self.badge)
+
+        self.grid = QGridLayout()
+        self.grid.setContentsMargins(0, 2, 0, 0)
+        for row, (key, value) in enumerate(self._details(item)):
+            k = label(key, "caption")
+            val = label(value, "value", wrap=True)
+            self.grid.addWidget(k, row, 0, Qt.AlignLeft | Qt.AlignTop)
+            self.grid.addWidget(val, row, 1)  # fills the column, so long values wrap instead of clipping
+        self.grid.setColumnStretch(1, 1)
+        v.addLayout(self.grid)
         v.addStretch(1)
         self.set_zoom(1.0)
 
-    def _detail_lines(self, item):
-        lines = [
-            f"{de.MATCH_LABELS.get(item['match'], item['match'])}, {item['similarity']:.1f}% similar",
-            f"Resolution: {item['resolution'] or 'unknown'}",
-            f"Size: {_size_text(item['size'])}   Duration: {de.format_seconds(item['duration'])}",
-            f"Bitrate: {item['bitrate']:.0f} kb/s" if item["bitrate"] else "Bitrate: unknown",
+    def _details(self, item):
+        rows = [
+            ("Match", de.MATCH_LABELS.get(item["match"], item["match"])),
+            ("Similarity", f"{item['similarity']:.1f}%"),
+            ("Resolution", item["resolution"] or "unknown"),
+            ("Size", _size_text(item["size"])),
+            ("Duration", de.format_seconds(item["duration"])),
+            ("Bitrate", f"{item['bitrate']:.0f} kb/s" if item["bitrate"] else "unknown"),
         ]
         if item["offset"]:
-            lines.append(f"Clip starts at {de.format_seconds(item['offset'])} in the source")
-        if item["best"]:
-            lines.append("Best copy (highest resolution, then bitrate, then size)")
-        return lines
+            rows.append(("Starts at", f"{de.format_seconds(item['offset'])} in the longer video"))
+        return rows
 
     def set_zoom(self, zoom):
-        self.setFixedWidth(int(theme.px(300) * zoom))
-        height = int(theme.px(150) * zoom)
+        width = int(CARD_W * zoom)
+        pad = max(6, int(10 * zoom))
+        self.setFixedWidth(width)
+        inner = width - 2 * pad - 2
+        height = int(inner * 9 / 16)
+        self.thumb.setFixedSize(inner, height)
         if self.pixmap is not None:
-            self.thumb.setFixedHeight(height)
-            self.thumb.setPixmap(self.pixmap.scaledToHeight(height, Qt.SmoothTransformation))
+            self.thumb.setPixmap(self.pixmap.scaled(inner, height, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
-            self.thumb.setFixedHeight(height)
             self.thumb.setText("No preview")
-        self.v.setContentsMargins(*(int(theme.px(12) * zoom),) * 4)
-        self.v.setSpacing(int(theme.px(6) * zoom))
+        self.v.setContentsMargins(pad, pad, pad, pad)
+        self.v.setSpacing(max(2, int(4 * zoom)))
+        self.grid.setHorizontalSpacing(max(6, int(10 * zoom)))
+        self.grid.setVerticalSpacing(max(1, int(2 * zoom)))
+        body = max(9, round(theme.text_px("body") * zoom))
+        small = max(9, round(theme.text_px("caption") * zoom))
         self.setStyleSheet(
-            f"QLabel[role='heading'] {{ font-size: {round(theme.text_px('heading') * zoom)}px; }}"
-            f"QLabel {{ font-size: {round(theme.text_px('body') * zoom)}px; }}")
+            f"QLabel {{ font-size: {small}px; }}"
+            f"QLabel[role='heading'] {{ font-size: {body}px; }}"
+            f"QLabel[role='value'] {{ color: {theme.TEXT}; }}"
+            f"QLabel#thumb {{ background: {theme.FIELD}; border-radius: {theme.R_CONTROL}px; }}")
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton and self.rect().contains(event.position().toPoint()):
@@ -159,72 +187,51 @@ class DuplicatesPage(Page):
         self.cards = []
         saved = settings.load()
         opts = saved.get("dup_options", {})
-        self.zoom = min(ZOOM_MAX, max(ZOOM_MIN, float(saved.get("dup_zoom", 0.8))))
+        self.zoom = min(ZOOM_MAX, max(ZOOM_MIN, float(saved.get("dup_zoom", 1.0))))
 
-        # ----- left column: the setup -----
-        left_host = QWidget()
-        self.left = QVBoxLayout(left_host)
-        self.left.setContentsMargins(0, 0, theme.px(12), 0)
-        self.left.setSpacing(theme.px(10))
-
+        # ----- what to search -----
         self.mode = NoWheelCombo()
         self.mode.addItem("Find duplicates in a folder", "folder")
-        self.mode.addItem("Check file(s) against a library", "library")
+        self.mode.addItem("Check videos against a library", "library")
         self.mode.setCurrentIndex(0 if opts.get("mode", "folder") == "folder" else 1)
         self.mode.currentIndexChanged.connect(self._show_mode)
+        self.mode.setFixedWidth(250)
 
         self.folder = line_edit(saved.get("dup_last_folder", ""), placeholder="Choose the folder to search")
         self.recursive = QCheckBox("Include subfolders")
         self.recursive.setChecked(opts.get("recursive", True))
-
+        self.library = line_edit(saved.get("dup_last_library", ""), placeholder="Choose the library folder")
         self.files = QListWidget()
-        self.files.setMinimumHeight(theme.px(80))
         self.files.setSelectionMode(QListWidget.ExtendedSelection)
         for path in saved.get("dup_last_files", []):
             if Path(path).exists():
                 self.files.addItem(path)
-        self.library = line_edit(saved.get("dup_last_library", ""), placeholder="Choose the library folder")
 
-        # Top bar: what to search, and Scan. The panel shown depends on the mode.
         self.panel_a = QWidget()
-        a = QHBoxLayout(self.panel_a)
-        a.setContentsMargins(0, 0, 0, 0)
-        a.setSpacing(theme.px(8))
+        a = tool_row()
+        self.panel_a.setLayout(a)
         add_folder(a, "Folder", self.folder, "Choose the folder to search")
         a.addWidget(self.recursive)
         self.panel_b = QWidget()
-        b = QHBoxLayout(self.panel_b)
-        b.setContentsMargins(0, 0, 0, 0)
-        b.setSpacing(theme.px(8))
+        b = tool_row()
+        self.panel_b.setLayout(b)
         add_folder(b, "Library", self.library, "Choose the library folder to check against")
         add = button("Add videos...")
         add.setToolTip("Choose the videos to check against the library")
         add.clicked.connect(self._add_files)
         b.addWidget(add)
-        self.files_card, fv = results_panel()
-        files_head = QHBoxLayout()
-        files_head.addWidget(label("Videos to check", "heading"), 1)
-        remove = button("Remove")
-        remove.clicked.connect(self._remove_files)
-        files_head.addWidget(remove)
-        fv.addLayout(files_head)
-        fv.addWidget(self.files)
-        self.left.addWidget(self.files_card)
 
-        self.scan_btn = button("Scan", "primary", icons.icon("search", theme.ON_GREEN, 18))
+        self.scan_btn = button("Scan", "primary", icons.icon("search", theme.ON_ACCENT, 16))
         self.scan_btn.clicked.connect(self._scan)
         self.cancel_btn = button("Cancel")
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.clicked.connect(self._cancel)
+
         bar, rows = toolbar()
         top = tool_row()
-        self.mode.setMaximumWidth(theme.px(280))
-        self.folder.setMinimumWidth(theme.px(110))
-        self.library.setMinimumWidth(theme.px(110))
-        top.addWidget(muted("Mode"))
-        top.addWidget(self.mode, 1)
+        top.addWidget(field_label("Mode"))
+        top.addWidget(self.mode)
         top.addStretch(1)
-        top.addWidget(divider())
         top.addWidget(self.cancel_btn)
         top.addWidget(self.scan_btn)
         rows.addLayout(top)
@@ -233,76 +240,99 @@ class DuplicatesPage(Page):
         what.addWidget(self.panel_b, 1)
         rows.addLayout(what)
         self.body.addWidget(bar)
-        self._show_mode(self.mode.currentIndex())
 
+        # ----- left column: matching options and the engine -----
         self.percent = NoWheelSlider(Qt.Horizontal)
         self.percent.setRange(50, 100)
         self.percent.setValue(int(opts.get("percent", 95)))
-        self.percent_label = muted("")
+        self.percent.setToolTip(EXPLAIN_EXACT)
+        self.percent_label = label("", "muted")
+        self.percent_label.setFixedWidth(36)
+        self.percent_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.percent.valueChanged.connect(lambda v: self.percent_label.setText(f"{v}%"))
         self.percent_label.setText(f"{self.percent.value()}%")
 
-        self.audio = QCheckBox("Partial clips by audio (off by default)")
+        self.audio = QCheckBox("Partial clips by audio")
         self.audio.setChecked(opts.get("audio", False))
+        self.audio.setToolTip(EXPLAIN_AUDIO)
         self.audio_ratio = self._percent_spin(opts.get("audio_ratio", 10), 1, 100)
+        self.audio_ratio.setToolTip("The shortest clip to look for, as a share of the longer video")
         self.audio_sim = self._percent_spin(opts.get("audio_similarity", 80), 1, 100)
-
-        self.visual = QCheckBox("Partial clips by visual AI (off by default)")
+        self.audio_sim.setToolTip("How closely the sound must match")
+        self.visual = QCheckBox("Partial clips by visual AI")
         self.visual.setChecked(opts.get("visual", False))
+        self.visual.setToolTip(EXPLAIN_VISUAL)
         self.visual_hit = self._percent_spin(opts.get("visual_hit", 89), 70, 99)
+        self.visual_hit.setToolTip("How closely each frame must match")
 
-        opt_card = card()
-        g = QGridLayout(opt_card)
-        self._pad(g)
-        g.setColumnStretch(0, 1)
-        g.addWidget(label("Similarity", "body"), 0, 0)
-        g.addWidget(self.percent, 1, 0)
-        g.addWidget(self.percent_label, 1, 1)
-        g.addWidget(muted(EXPLAIN_EXACT, wrap=True), 2, 0, 1, 2)
-        g.addWidget(self.audio, 3, 0, 1, 2)
-        g.addWidget(self._indented(muted("Min clip length (share of the longer video)", wrap=True),
-                                   self.audio_ratio), 4, 0, 1, 2)
-        g.addWidget(self._indented(muted("Min audio match", wrap=True), self.audio_sim), 5, 0, 1, 2)
-        g.addWidget(muted(EXPLAIN_AUDIO, wrap=True), 6, 0, 1, 2)
-        g.addWidget(self.visual, 7, 0, 1, 2)
-        g.addWidget(self._indented(muted("Per-frame match needed", wrap=True), self.visual_hit), 8, 0, 1, 2)
-        g.addWidget(muted(EXPLAIN_VISUAL, wrap=True), 9, 0, 1, 2)
-        self.left.addWidget(opt_card)
+        options, ov = results_panel()
+        ov.setSpacing(6)
+        ov.addWidget(label("Matching", "heading"))
+        sim = tool_row()
+        sim.addWidget(muted("Similarity"))
+        sim.addWidget(self.percent, 1)
+        sim.addWidget(self.percent_label)
+        ov.addLayout(sim)
+        ov.addWidget(label("Exact and near copies are always found. Lower = more matches, more mistakes.",
+                           "caption", wrap=True))
+        ov.addSpacing(4)
+        ov.addWidget(self.audio)
+        ov.addWidget(self._indented("Shortest clip", self.audio_ratio))
+        ov.addWidget(self._indented("Sound match", self.audio_sim))
+        ov.addSpacing(4)
+        ov.addWidget(self.visual)
+        ov.addWidget(self._indented("Frame match", self.visual_hit))
+        ov.addWidget(label("Hover an option to see what it does. Partial clips are off by default; "
+                           "visual AI downloads about 100 MB the first time.", "caption", wrap=True))
 
-        self.engine_label = muted("", wrap=True)
-        self.ffmpeg_label = muted("", wrap=True)
-        self.install_btn = button("Install engine", "primary", icons.icon("move", theme.ON_GREEN, 18))
+        self.engine_label = label("", "muted", wrap=True)
+        self.ffmpeg_label = label("", "muted", wrap=True)
+        self.install_btn = button("Install engine")
         self.install_btn.clicked.connect(self._install_engine)
         self.update_btn = button("Check for update")
         self.update_btn.clicked.connect(self._check_update)
         self.ffmpeg_btn = button("Download FFmpeg")
         self.ffmpeg_btn.clicked.connect(self._install_ffmpeg)
-        eng = card()
-        ev = QVBoxLayout(eng)
-        self._pad(ev)
+        engine, ev = results_panel()
+        ev.setSpacing(6)
+        ev.addWidget(label("Engine", "heading"))
         ev.addWidget(self.engine_label)
-        eng_row = QHBoxLayout()
-        eng_row.addWidget(self.install_btn)
-        eng_row.addWidget(self.update_btn)
+        eng_row = tool_row()
+        eng_row.setSpacing(6)
+        eng_row.addWidget(self.install_btn, 1)
+        eng_row.addWidget(self.update_btn, 1)
         ev.addLayout(eng_row)
         ev.addWidget(self.ffmpeg_label)
         ev.addWidget(self.ffmpeg_btn)
-        ev.addWidget(muted("The engine (vdf-cli, from 0x90d/videoduplicatefinder) is downloaded into the app data "
-                           "folder when you install it. It is not part of this app.", wrap=True))
-        self.left.addWidget(eng)
+        ev.addWidget(label("vdf-cli (0x90d/videoduplicatefinder) is downloaded into the app data folder when you "
+                           "install it. It is not part of this app.", "caption", wrap=True))
 
+        self.files_card, fv = results_panel()
+        files_head = tool_row()
+        files_head.addWidget(label("Videos to check", "heading"), 1)
+        remove = button("Remove")
+        remove.clicked.connect(self._remove_files)
+        files_head.addWidget(remove)
+        fv.addLayout(files_head)
+        self.files.setMinimumHeight(96)
+        fv.addWidget(self.files, 1)
+
+        left_host = QWidget()
+        self.left = QVBoxLayout(left_host)
+        self.left.setContentsMargins(0, 0, 11, 0)  # the scroll bar sits in this margin, never over the options
+        self.left.setSpacing(theme.GAP)
+        self.left.addWidget(self.files_card)
+        self.left.addWidget(options)
+        self.left.addWidget(engine)
         self.left.addStretch(1)
-
-        left_scroll = QScrollArea()  # the setup column scrolls if the window is too short for it
+        left_scroll = QScrollArea()  # scrolls up and down when the window is short, never sideways
         left_scroll.setWidgetResizable(True)
         left_scroll.setFrameShape(QFrame.NoFrame)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         left_scroll.setWidget(left_host)
-        left_scroll.setMinimumWidth(theme.px(330))
-        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # the setup column never scrolls sideways
-        for kind in (QLineEdit, QComboBox, QSpinBox):
-            for field in left_host.findChildren(kind):
-                field.setMinimumWidth(theme.px(80))  # fields shrink to fit instead of pushing the column wider
+        left_scroll.setFixedWidth(LEFT_W)
         self.left_scroll = left_scroll
+        self._show_mode(self.mode.currentIndex())
 
         # ----- middle column: groups and their files -----
         self.filter = NoWheelCombo()
@@ -311,16 +341,22 @@ class DuplicatesPage(Page):
                             ("Partial clip (visual AI)", "partial_visual")):
             self.filter.addItem(text, value)
         self.filter.currentIndexChanged.connect(lambda _i: self._render())
+        self.filter.setToolTip("Show only groups with this kind of match")
         self.sort = NoWheelCombo()
         self.sort.addItem("Largest first", "size")
         self.sort.addItem("Most similar", "similarity")
         self.sort.currentIndexChanged.connect(lambda _i: self._render())
-        self.summary = muted("No scan yet.", wrap=True)
+        self.sort.setToolTip("Sort the groups")
+        for box in (self.filter, self.sort):
+            box.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            box.setMinimumContentsLength(10)
+        self.summary = ElidedLabel("No scan yet.")
 
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Group and file"])
+        self.tree.setHeaderLabels(["Groups"])
         self.tree.setRootIsDecorated(True)
         self.tree.setUniformRowHeights(True)
+        self.tree.setIndentation(16)
         self.tree.setSelectionMode(QTreeWidget.ExtendedSelection)
         self.tree.itemSelectionChanged.connect(self._on_selection)
         self.tree.itemDoubleClicked.connect(lambda _item, _c: self._open_selected())
@@ -328,59 +364,52 @@ class DuplicatesPage(Page):
         self.tree.customContextMenuRequested.connect(self._tree_menu)
         remember("dup_tree", self.tree, header=True)
 
-        self.btn_open = button("Open")
-        self.btn_open.setToolTip("Open the selected video")
-        self.btn_open.clicked.connect(self._open_selected)
-        self.btn_show = button("Explorer")
-        self.btn_show.setToolTip("Show the selected video in Explorer")
-        self.btn_show.clicked.connect(self._show_selected)
-        self.btn_offset = button("Offset")
-        self.btn_offset.setToolTip("Open the selected clip; the time it starts at in the source is shown in the log")
-        self.btn_offset.clicked.connect(self._open_offset)
         self.btn_keep = button("Keep", "primary")
         self.btn_keep.setToolTip("Keep the selected copy (or the best copy) and send the others to the Recycle Bin")
         self.btn_keep.clicked.connect(self._keep_selected)
-        self.btn_ignore = button("Ignore")
-        self.btn_ignore.setToolTip("Hide this group now and in future scans")
-        self.btn_ignore.clicked.connect(self._ignore_group)
-        self.btn_delete = button("Delete")
+        self.btn_delete = button("Delete", "danger")
         self.btn_delete.setToolTip("Send the selected files to the Recycle Bin")
         self.btn_delete.clicked.connect(self._delete_selected)
         self.btn_move = button("Move")
         self.btn_move.setToolTip("Move or copy the selected groups and files to a folder you choose")
         self.btn_move.clicked.connect(self._move_selected)
-        # Two rows of buttons (4 and 3), so the middle column fits in a narrow window
-        acts = QGridLayout()
-        acts.setHorizontalSpacing(theme.px(6))
-        acts.setVerticalSpacing(theme.px(6))
-        for i, widget in enumerate((self.btn_open, self.btn_show, self.btn_offset, self.btn_keep,
-                                    self.btn_ignore, self.btn_delete, self.btn_move)):
-            acts.addWidget(widget, i // 4, i % 4)
-        for col in range(4):
-            acts.setColumnStretch(col, 1)
+        self.btn_ignore = button("Ignore")
+        self.btn_ignore.setToolTip("Hide this group now and in future scans")
+        self.btn_ignore.clicked.connect(self._ignore_group)
+        more = QToolButton()
+        more.setText("More")
+        more.setPopupMode(QToolButton.InstantPopup)
+        more.setCursor(Qt.CursorShape.PointingHandCursor)
+        more_menu = QMenu(more)
+        self.btn_open = more_menu.addAction("Open video", self._open_selected)
+        self.btn_show = more_menu.addAction("Show in Explorer", self._show_selected)
+        self.btn_offset = more_menu.addAction("Open clip (offset in the log)", self._open_offset)
+        more.setMenu(more_menu)
 
-        middle = card()
-        mv = QVBoxLayout(middle)
-        self._pad(mv)
-        top = QHBoxLayout()
-        top.setSpacing(theme.px(6))
-        for box in (self.filter, self.sort):
-            box.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-            box.setMinimumContentsLength(8)  # the boxes shrink with the column instead of widening the page
-        self.filter.setToolTip("Show only groups with this kind of match")
-        self.sort.setToolTip("Sort the groups")
+        middle, mv = results_panel()
+        middle.setMinimumWidth(MIDDLE_MIN_W)
+        top = tool_row()
+        top.setSpacing(6)
         top.addWidget(self.filter, 1)
         top.addWidget(self.sort, 1)
         mv.addLayout(top)
         mv.addWidget(self.summary)
         mv.addWidget(self.tree, 1)
+        acts = tool_row()
+        acts.setSpacing(6)
+        for widget in (self.btn_keep, self.btn_delete, self.btn_move, self.btn_ignore):
+            acts.addWidget(widget)
+        acts.addStretch(1)
+        acts.addWidget(more)
+        for widget in (self.btn_keep, self.btn_delete, self.btn_move, self.btn_ignore, more):
+            widget.setMinimumWidth(widget.sizeHint().width())  # buttons never squeeze their text
         mv.addLayout(acts)
 
         # ----- right column: the copies side by side, with zoom -----
         self.compare_host = QWidget()
         self.compare_row = QHBoxLayout(self.compare_host)
         self.compare_row.setContentsMargins(0, 0, 0, 0)
-        self.compare_row.setSpacing(theme.px(10))
+        self.compare_row.setSpacing(theme.GAP)
         self.compare_scroll = QScrollArea()
         self.compare_scroll.setWidgetResizable(True)
         self.compare_scroll.setFrameShape(QFrame.NoFrame)
@@ -391,62 +420,52 @@ class DuplicatesPage(Page):
         self.zoom_slider.setRange(int(ZOOM_MIN * 100), int(ZOOM_MAX * 100))
         self.zoom_slider.setValue(round(self.zoom * 100))
         self.zoom_slider.valueChanged.connect(lambda v: self._set_zoom(v / 100))
-        self.zoom_label = muted("")
-        zoom_top = QHBoxLayout()
-        zoom_top.addWidget(label("Compare copies", "heading"))
-        zoom_top.addStretch(1)
-        zoom_row = QHBoxLayout()
-        zoom_row.setSpacing(theme.px(8))
-        zoom_row.addWidget(muted("Size"))
-        zoom_row.addWidget(self.zoom_slider, 1)
-        zoom_row.addWidget(self.zoom_label)
-        compare = card()
-        compare.setMinimumWidth(theme.px(200))
-        cv = QVBoxLayout(compare)
-        self._pad(cv)
-        cv.addLayout(zoom_top)
-        cv.addLayout(zoom_row)
+        self.zoom_slider.setFixedWidth(90)
+        self.zoom_slider.setToolTip("Card size (Ctrl + mouse wheel over the cards also works)")
+        self.zoom_label = label("", "muted")
+        self.zoom_label.setFixedWidth(40)
+        self.zoom_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        compare, cv = results_panel()
+        compare.setMinimumWidth(COMPARE_MIN_W)
+        head = tool_row()
+        head.addWidget(label("Compare copies", "heading"))
+        head.addStretch(1)
+        head.addWidget(self.zoom_slider)
+        head.addWidget(self.zoom_label)
+        head_box = QWidget()
+        head_box.setFixedHeight(theme.CONTROL_H)
+        head_box.setLayout(head)
+        cv.addWidget(head_box)
         cv.addWidget(self.compare_scroll, 1)
         self._update_zoom_label()
 
-        # ----- three resizable columns -----
+        # ----- the groups and the comparison share the width; the options column stays fixed -----
         split = QSplitter(Qt.Horizontal)
         split.setChildrenCollapsible(False)
-        split.setHandleWidth(theme.px(10))
-        split.addWidget(left_scroll)
+        split.setHandleWidth(theme.GAP)
         split.addWidget(middle)
         split.addWidget(compare)
-        split.setStretchFactor(0, 0)
-        split.setStretchFactor(1, 1)
-        split.setStretchFactor(2, 2)
-        remember("dup_split3", split)
-        if "dup_split3" not in settings.load().get("layout", {}):  # first run: share out the width
-            QTimer.singleShot(0, lambda: self._size_columns(split))
-        self.body.addWidget(split, 1)
+        split.setStretchFactor(0, 2)
+        split.setStretchFactor(1, 3)
+        remember("dup_split", split)
+        if "v3:dup_split" not in settings.load().get("layout", {}):  # first run: the comparison gets more room
+            QTimer.singleShot(0, lambda: split.setSizes([int(split.width() * 0.4), int(split.width() * 0.6)]))
+        columns = QHBoxLayout()
+        columns.setContentsMargins(0, 0, 0, 0)
+        columns.setSpacing(theme.GAP)
+        columns.addWidget(left_scroll)
+        columns.addWidget(split, 1)
+        self.body.addLayout(columns, 1)
         self._show_compare()
 
         self._refresh_engine_status()
         self._update_buttons()
 
     # ---------- small helpers ----------
-    def _size_columns(self, split):
-        total = split.width() or theme.px(1000)
-        left = max(theme.px(330), int(total * 0.28))
-        middle = max(theme.px(300), int(total * 0.34))
-        split.setSizes([left, middle, max(theme.px(220), total - left - middle)])
-
     def _show_mode(self, index):
         self.panel_a.setVisible(index == 0)
         self.panel_b.setVisible(index == 1)
         self.files_card.setVisible(index == 1)
-
-    def _pad(self, layout):
-        layout.setContentsMargins(theme.px(12), theme.px(10), theme.px(12), theme.px(10))
-        if isinstance(layout, QGridLayout):
-            layout.setHorizontalSpacing(theme.px(8))
-            layout.setVerticalSpacing(theme.px(6))
-        else:
-            layout.setSpacing(theme.px(6))
 
     def _percent_spin(self, value, low, high):
         spin = NoWheelSpin()
@@ -455,11 +474,14 @@ class DuplicatesPage(Page):
         spin.setValue(int(value))
         return spin
 
-    def _indented(self, text_widget, spin):
+    def _indented(self, text, spin):
+        """An option that belongs to the tick box above it: indented, label left, value right."""
         row = QWidget()
         h = QHBoxLayout(row)
-        h.setContentsMargins(theme.px(18), 0, 0, 0)
-        h.addWidget(text_widget, 1)
+        h.setContentsMargins(22, 0, 0, 0)
+        h.setSpacing(theme.GAP)
+        h.addWidget(muted(text), 1)
+        spin.setFixedWidth(64)
         h.addWidget(spin)
         return row
 
@@ -481,8 +503,13 @@ class DuplicatesPage(Page):
 
     # ---------- zoom ----------
     def eventFilter(self, obj, event):
-        if (obj is self.compare_scroll.viewport() and event.type() == QEvent.Wheel
-                and event.modifiers() & Qt.ControlModifier):
+        if event.type() != QEvent.Wheel:
+            return super().eventFilter(obj, event)
+        try:
+            viewport = self.compare_scroll.viewport()
+        except RuntimeError:  # the window is closing
+            return False
+        if obj is viewport and event.modifiers() & Qt.ControlModifier:
             step = 0.1 if event.angleDelta().y() > 0 else -0.1
             self.zoom_slider.setValue(round((self.zoom + step) * 100))  # the slider's handler applies it
             return True
@@ -676,6 +703,9 @@ class DuplicatesPage(Page):
             header.setText(0, f"Group {number}  ·  {len(group['items'])} copies  ·  "
                               f"{de.MATCH_LABELS.get(de.group_match(group), '')}")
             header.setData(0, ROW_GROUP, group["key"])
+            bold = header.font(0)
+            bold.setBold(True)
+            header.setFont(0, bold)
             header.setExpanded(True)
             for item in sorted(visible, key=lambda i: (not i["best"], -i["pixels"])):
                 copies += 1
@@ -728,19 +758,21 @@ class DuplicatesPage(Page):
         while self.compare_row.count():
             entry = self.compare_row.takeAt(0)
             if entry.widget() is not None:
+                entry.widget().hide()  # gone from view at once, deleted when Qt is next idle
                 entry.widget().deleteLater()
         self.cards = []
         group, _item = self._selection()
         if group is None:
-            self.compare_row.addWidget(muted("Select a group to see its copies side by side.", wrap=True))
-        else:
-            for item in sorted(group["items"], key=lambda i: (not i["best"], -i["pixels"])):
-                widget = CopyCard(item, self.thumbs.get(item["path"]))
-                widget.set_zoom(self.zoom)
-                widget.clicked.connect(self._open_card)
-                widget.context_requested.connect(self._card_menu)
-                self.cards.append(widget)
-                self.compare_row.addWidget(widget)
+            # Centred in the whole comparison area, so it reads as a placeholder, not stray text
+            self.compare_row.addWidget(empty_state("Select a group to compare its copies side by side."), 1)
+            return
+        for item in sorted(group["items"], key=lambda i: (not i["best"], -i["pixels"])):
+            widget = CopyCard(item, self.thumbs.get(item["path"]))
+            widget.set_zoom(self.zoom)
+            widget.clicked.connect(self._open_card)
+            widget.context_requested.connect(self._card_menu)
+            self.cards.append(widget)
+            self.compare_row.addWidget(widget, 0, Qt.AlignTop)
         self.compare_row.addStretch(1)
 
     def _open_card(self, path):

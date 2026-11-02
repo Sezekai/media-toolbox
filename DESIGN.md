@@ -1,59 +1,49 @@
 # Design: Media Toolbox
 
-Status: replacement world, usability first. Recorded after the design roll ran degraded (no network, no challengers). The owner chose a usability-first redesign over a degraded hand.
+Status: version 3, compact dark. The owner asked for one cohesive, compact dark layout that gives the most room to the lists and previews, with the theme, font and size options removed. Functionality is unchanged.
 
 ## Mode
 
-Operate. The visitor completes a file task (choose folder, check options, run, review results, act). Scanability, consistency and native expectations outrank expression.
+Operate. The owner completes file tasks: choose a folder, set options, run, review the results, act on them. Scanability and consistency outrank expression.
 
 ## Scene
 
-One person on a Windows PC, in daylight or evening light, switching between several small file jobs. They want to find the control, start the job, see progress, and undo nothing by accident. Dark is the default because the owner chose it, and the scene allows it.
+One person at a Windows PC working through long lists of files and video copies. The screen should be mostly results; controls stay small, aligned and predictable.
 
-## World
+## One look
 
-"Graphite workbench": a calm, cool graphite instrument. Surfaces are near-neutral and layered only by one step of lightness. A single blue accent marks what the user can act on: the primary action, the selected row, progress and keyboard focus. Nothing decorative: no gradients, glows, illustrations or shadows.
+There are no themes, fonts or sizes to choose. Everything comes from `theme.py`.
 
-## Colour strategy
+- Colours: ground #111214, panels #18191c, raised controls #202226, fields and lists #0d0e10, hairlines #2a2c31. Text #e8eaed, secondary #9aa0a8, faint #6c727b. One accent, blue #4a9eff (text on it #08111f). Danger #e5484d, used only by Delete. Selected rows #1d3557.
+- Accent jobs only: the primary button, selection, progress, focus, the active tool and the "Best copy" tag.
+- Type: Segoe UI Variable / Segoe UI (Windows' own face), 13 px body, 12 px captions and column headers, 15 px page titles. Monospace only in the log.
+- Icons: one outline set on a 24-unit grid, same stroke, round ends, drawn in code.
 
-Restrained. Tinted neutrals for every surface, one accent (blue) at under 10% of the screen. State colours are used only where they carry meaning: red for delete and failure, the accent for progress and selection.
+## Sizes
 
-Palette (Graphite, the default theme): ground #101113, sidebar #16171a, cards #1d1e22, field #141517, hairline #2e3036, text #eef0f4, muted text #9ba1ad (about 6.5:1 on cards), accent #3b9cf0, text on accent #06121f, danger #c0392b, selection #1f3550.
+- Every button, text box, drop-down and spin box is 28 px tall. List rows are 24 px.
+- Gaps: 8 px between controls and panels, 10 px inside panels, 12 px around the page.
+- Corners: 5 px on controls, 7 px on panels. No shadows.
+- Field labels share one 88 px column, so text boxes line up from row to row and page to page.
 
-## Type
+## Layout
 
-Inter (bundled), with the system fallback Segoe UI. Scale 12 / 14 / 16 / 24 px. Body 14 px. Headings are bold, not larger than 16 px inside a card. Page titles 24 px. Tabular numbers in counts and sizes.
+- Icon rail (52 px) on the left; tool names appear on hover.
+- Page header is one line: the title, then what the tool does, cut short with "..." if the window is narrow.
+- Tool bar: row one is the main folder and the main button at the right; row two is the second folder or the options.
+- Results panel takes all the remaining height. A summary sits on the left above the list and the list's own buttons on the right.
+- Lists never scroll sideways: the first column takes the spare width; other columns keep their width and can be dragged.
+- Status bar (36 px) with the job, progress and Log. The log is a drawer that opens by itself on an error.
+- Smallest window 1024 x 620. At that size every page fits; nothing scrolls sideways.
 
-## Density
+## Duplicate videos
 
-Compact. Table rows 26–28 px. Control height at least 30 px. Gutters 14–16 px inside cards, 12 px between cards. Cards use a 10 px radius and a one-pixel hairline, with no shadow.
-
-## Controls
-
-- One primary (filled accent) action per panel: Scan, Move, Convert, Copy, Zip.
-- Secondary: filled neutral. Text buttons are not used for actions.
-- Destructive: red, and only for Delete. Removals still go to the Recycle Bin and are logged.
-- Focus: a one-pixel accent border on every control, so keyboard users can see where they are.
-- Disabled: muted text on the neutral fill.
-
-## Signature
-
-The status bar along the bottom: what is running, a progress bar in the accent, and a Log button. The log is a drawer above the status bar; it stays closed until you open it, and opens by itself when a job reports an error, so a failure is never missed.
-
-## Layout rules (version 2, toolbar and full results)
-
-- Icon rail (64 px) on the left: one icon per tool, the name in a tooltip, the active tool tinted with the accent. Appearance sits at the bottom of the rail, apart from the tools.
-- Each tool page: title and one-line purpose, then a tool bar, then the results panel, which takes all the remaining height.
-- Tool bar: the first row holds the folder and the main action (Scan, Load, Zip, Copy, Convert all) at the right end; the second row holds the options. One primary button per bar.
-- Results panel: a summary on the left and the list's own actions on the right, above the list.
-- Duplicate videos keeps three resizable columns (options, groups, compare) under its tool bar; it needs about 1050 px of window width before it scrolls sideways.
-- Lists keep resizable, remembered columns. Ctrl + wheel zooms the comparison area. The options column scrolls with the wheel.
-- When the redesign first runs, the saved theme switches once to Graphite. Appearance can switch it back.
-
-## Honest risk
-
-Without the roll there is no challenger check, so this world is a sensible default rather than an argued-for one. It may look close to other dark utilities. That is accepted, because the owner asked for things to work without friction.
+- Tool bar: mode, then the folder (or library and Add videos), with Cancel and Scan at the right.
+- Left column (290 px, fixed): matching options and the engine. Long explanations live in tooltips. It scrolls up and down only.
+- Groups list with filter and sort, then Keep, Delete, Move, Ignore and a More menu (open, show in Explorer, open clip).
+- Compare copies: a header with the size slider at the right; cards top-aligned in a row; with nothing selected, a centred placeholder.
+- Copy card: 16:9 preview, name, folder, a "Best copy" tag when it is, then the details as a two-column list. Ctrl + wheel or the slider scales the whole card.
 
 ## Not in this world
 
-Gradients, glass, neon, illustrated empty states, coloured left borders on cards, shadows, kicker labels, monospace as decoration. The log stays monospace because it holds paths and numbers.
+Theme pickers, gradients, glass, glows, shadows, coloured side borders, kicker labels, decorative monospace, illustrated empty states.

@@ -4,14 +4,14 @@ from pathlib import Path
 
 from PySide6.QtCore import QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QLabel, QMessageBox,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel, QMessageBox,
                                QSizePolicy, QSplitter, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 import gif_maker
 import icons
 import theme
 from media_utils import find_videos, probe_duration
-from widgets import (Page, add_folder, button, card, divider, label, line_edit, make_tree, muted, remember,
+from widgets import (ElidedLabel, Page, add_folder, button, card, divider, label, line_edit, make_tree, muted, remember,
                      results_bar, results_panel, tool_row, toolbar)
 
 MIN_CLIP = 0.1  # shortest allowed timeframe, in seconds
@@ -50,8 +50,8 @@ class Timeline(QWidget):
         self.start = 0.0
         self.end = 0.0
         self._drag = None
-        self.setMinimumHeight(theme.px(72))
-        self.setMinimumWidth(theme.px(200))
+        self.setFixedHeight(52)
+        self.setMinimumWidth(200)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def set_range(self, duration, start, end):
@@ -59,12 +59,12 @@ class Timeline(QWidget):
         self.update()
 
     def _x(self, t):
-        pad = theme.px(14)
+        pad = 6
         span = max(1, self.width() - 2 * pad)
         return pad + (t / self.duration) * span if self.duration else pad
 
     def _t(self, x):
-        pad = theme.px(14)
+        pad = 6
         span = max(1, self.width() - 2 * pad)
         return min(max((x - pad) / span * self.duration, 0.0), self.duration)
 
@@ -72,23 +72,23 @@ class Timeline(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
-        pad = theme.px(14)
-        caption_h = theme.text_px("caption") + theme.px(10)
-        top = theme.px(12)
+        pad = 6
+        caption_h = theme.text_px("caption") + 6
+        top = 8
         bottom = h - caption_h
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(theme.TRACK))
-        p.drawRoundedRect(QRectF(pad, top, w - 2 * pad, bottom - top), theme.px(6), theme.px(6))
+        p.drawRoundedRect(QRectF(pad, top, w - 2 * pad, bottom - top), 4, 4)
         if self.duration:
             xs, xe = self._x(self.start), self._x(self.end)
-            p.setBrush(QColor(theme.GREEN))
-            p.drawRoundedRect(QRectF(xs, top, max(1.0, xe - xs), bottom - top), theme.px(6), theme.px(6))
-            p.setPen(QPen(QColor("#ffffff"), max(2, theme.px(3))))
+            p.setBrush(QColor(theme.SELECT))
+            p.drawRect(QRectF(xs, top, max(1.0, xe - xs), bottom - top))
+            p.setPen(QPen(QColor(theme.ACCENT), 3))
             for x in (xs, xe):
-                p.drawLine(int(x), top - theme.px(5), int(x), bottom + theme.px(5))
+                p.drawLine(int(x), top - 4, int(x), bottom + 4)
         p.setPen(QColor(theme.MUTED))
         p.setFont(theme.font("caption"))
-        caption = QRectF(pad, bottom + theme.px(4), w - 2 * pad, caption_h)
+        caption = QRectF(pad, bottom + 2, w - 2 * pad, caption_h)
         p.drawText(caption, Qt.AlignLeft | Qt.AlignVCenter, "0:00.0")
         p.drawText(caption, Qt.AlignRight | Qt.AlignVCenter, fmt_time(self.duration))
         p.end()
@@ -149,7 +149,7 @@ class Preview(QLabel):
     def __init__(self):
         super().__init__("No video selected")
         self.setAlignment(Qt.AlignCenter)
-        self.setProperty("role", "muted")
+        self.setProperty("role", "empty")
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self._source = None
 
@@ -157,7 +157,7 @@ class Preview(QLabel):
         return QSize(1, 1)  # the picture must never push the layout bigger
 
     def sizeHint(self):
-        return QSize(theme.px(200), theme.px(150))
+        return QSize(200, 150)
 
     def show_frame(self, pixmap):
         self._source = pixmap
@@ -175,7 +175,7 @@ class Preview(QLabel):
     def _refresh(self):
         if self._source is None:
             return
-        room = self.size() - QSize(theme.px(12), theme.px(12))
+        room = self.size()
         self.setPixmap(self._source.scaled(max(1, room.width()), max(1, room.height()),
                                            Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
@@ -188,8 +188,8 @@ class GifTab(Page):
         self.folder = line_edit(placeholder="Choose a folder")
         self.recursive = QCheckBox("Include subfolders")
         self.recursive.setChecked(True)
-        self.fps = line_edit("12", width=70)
-        self.width_px = line_edit("480", width=80)
+        self.fps = line_edit("12", width=48)
+        self.width_px = line_edit("480", width=60)
         self.quality = QComboBox()
         self.quality.addItems(list(gif_maker.QUALITY_PRESETS))
         self.out_dir = line_edit(placeholder="Empty = beside each video")
@@ -205,54 +205,42 @@ class GifTab(Page):
 
         # Top bar: the folder and how to load it, then the GIF settings and where the GIFs are saved
         self.quality.setToolTip("Higher quality = better colours, bigger file, slower")
+        self.quality.setFixedWidth(120)
         bar, rows = toolbar()
         top = tool_row()
         add_folder(top, "Video folder", self.folder, "Choose the video folder")
         top.addWidget(self.recursive)
-        load_btn = button("Load videos", "primary", icons.icon("gif", theme.ON_GREEN, 18))
+        load_btn = button("Load videos", "primary", icons.icon("gif", theme.ON_ACCENT, 16))
         load_btn.clicked.connect(self.load_videos)
         top.addWidget(divider())
         top.addWidget(load_btn)
         rows.addLayout(top)
         opts = tool_row()
+        add_folder(opts, "Save GIFs to", self.out_dir, "Save GIFs to...")
+        opts.addWidget(divider())
         opts.addWidget(muted("FPS"))
         opts.addWidget(self.fps)
-        opts.addSpacing(theme.px(6))
-        opts.addWidget(muted("Width (px)"))
+        opts.addSpacing(4)
+        opts.addWidget(muted("Width"))
         opts.addWidget(self.width_px)
-        opts.addSpacing(theme.px(6))
+        opts.addWidget(muted("px"))
+        opts.addSpacing(4)
         opts.addWidget(muted("Quality"))
         opts.addWidget(self.quality)
-        opts.addWidget(divider())
-        add_folder(opts, "Save GIFs to", self.out_dir, "Save GIFs to...")
         rows.addLayout(opts)
         self.body.addWidget(bar)
 
         split = QSplitter(Qt.Horizontal)
         split.setChildrenCollapsible(False)
-        split.setHandleWidth(theme.px(10))
-        left = QWidget()
-        left.setMinimumWidth(theme.px(380))
-        left_col = QVBoxLayout(left)
-        left_col.setContentsMargins(0, 0, 0, 0)
-        left_col.setSpacing(theme.px(12))
-        right = QWidget()
-        right.setMinimumWidth(theme.px(380))
-        right_col = QVBoxLayout(right)
-        right_col.setContentsMargins(0, 0, 0, 0)
-        split.addWidget(left)
-        split.addWidget(right)
-        split.setStretchFactor(0, 1)
-        split.setStretchFactor(1, 1)
-        remember("gif_split2", split)  # the panels share the width evenly unless you have dragged them
-        self.body.addWidget(split, 1)
+        split.setHandleWidth(theme.GAP)
 
-        # Left: the video list with its actions above it
+        # Left: the video list, its selection actions above it and the convert buttons below
         panel, pv = results_panel()
-        hint = muted("Click a video to set its clip.")
-        pv.addLayout(results_bar(hint, self._button("Select all", self.select_all),
+        panel.setMinimumWidth(360)
+        self.list_summary = ElidedLabel("Load a folder, then click a video to set its clip.")
+        pv.addLayout(results_bar(self.list_summary, self._button("Select all", self.select_all),
                                  self._button("Clear timeframes", self.clear_selected_ranges)))
-        self.tree = make_tree(("File", "Length", "Timeframe"), (200, 80, 130))
+        self.tree = make_tree(("File", "Length", "Timeframe"), (200, 70, 110))
         self.tree.setSortingEnabled(True)  # click a heading to sort by it, click again to reverse
         self.tree.sortByColumn(0, Qt.AscendingOrder)
         remember("gif_tree", self.tree, header=True)
@@ -262,19 +250,17 @@ class GifTab(Page):
         convert.addStretch(1)
         convert.addWidget(self._button("Convert all", lambda: self.convert(False)))
         convert.addWidget(self._button("Convert selected", lambda: self.convert(True), "primary",
-                                       icons.icon("gif", theme.ON_GREEN, 18)))
+                                       icons.icon("gif", theme.ON_ACCENT, 16)))
         pv.addLayout(convert)
-        left_col.addWidget(panel, 1)
 
         # Right: the timeframe editor, whose previews take the remaining height
-        editor = card()
-        ev = QVBoxLayout(editor)
-        ev.setContentsMargins(theme.px(16), theme.px(14), theme.px(16), theme.px(16))
-        ev.setSpacing(theme.px(10))
+        editor, ev = results_panel()
+        editor.setMinimumWidth(360)
         head = QHBoxLayout()
+        head.setSpacing(theme.GAP)
         head.addWidget(label("Timeframe", "heading"))
-        head.addWidget(muted("Click a video in the list to set its clip", wrap=True))
-        head.addStretch(1)
+        self.editor_hint = ElidedLabel("Click a video in the list to set its clip.")
+        head.addWidget(self.editor_hint, 1)
         ev.addLayout(head)
 
         self.timeline = Timeline()
@@ -282,37 +268,40 @@ class GifTab(Page):
         self.timeline.released.connect(self._on_release)
         ev.addWidget(self.timeline)
 
-        controls = QGridLayout()
-        controls.setHorizontalSpacing(theme.px(8))
-        controls.setVerticalSpacing(theme.px(8))
-        self.start_edit = line_edit(width=96)
-        self.end_edit = line_edit(width=96)
+        controls = tool_row()
+        self.start_edit = line_edit(width=80)
+        self.end_edit = line_edit(width=80)
         self.start_edit.returnPressed.connect(self._apply_entries)
         self.end_edit.returnPressed.connect(self._apply_entries)
-        controls.addWidget(muted("Start"), 0, 0)
-        controls.addWidget(self.start_edit, 0, 1)
-        controls.addWidget(muted("End"), 0, 2)
-        controls.addWidget(self.end_edit, 0, 3)
         apply_btn = button("Apply")
         apply_btn.clicked.connect(self._apply_entries)
         whole_btn = button("Whole video")
         whole_btn.clicked.connect(self._reset_range)
-        controls.addWidget(apply_btn, 1, 0, 1, 2)
-        controls.addWidget(whole_btn, 1, 2, 1, 2)
+        controls.addWidget(muted("Start"))
+        controls.addWidget(self.start_edit)
+        controls.addWidget(muted("End"))
+        controls.addWidget(self.end_edit)
+        controls.addWidget(apply_btn)
+        controls.addWidget(whole_btn)
+        controls.addStretch(1)
         self.length_label = label("", "heading")
-        controls.addWidget(self.length_label, 2, 0, 1, 4)
-        controls.setColumnStretch(4, 1)
+        controls.addWidget(self.length_label)
         ev.addLayout(controls)
 
-        previews = QGridLayout()
-        previews.setHorizontalSpacing(theme.px(12))
-        previews.setVerticalSpacing(0)
+        previews = QHBoxLayout()
+        previews.setSpacing(theme.GAP)
         self.start_view = Preview()
         self.end_view = Preview()
-        previews.addWidget(self._preview_box("Clip starts at", self.start_view), 0, 0)
-        previews.addWidget(self._preview_box("Clip ends at", self.end_view), 0, 1)
+        previews.addWidget(self._preview_box("Clip starts at", self.start_view), 1)
+        previews.addWidget(self._preview_box("Clip ends at", self.end_view), 1)
         ev.addLayout(previews, 1)
-        right_col.addWidget(editor, 1)
+
+        split.addWidget(panel)
+        split.addWidget(editor)
+        split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 1)
+        remember("gif_split", split)  # the panels share the width evenly unless you have dragged them
+        self.body.addWidget(split, 1)
 
     def _button(self, text, command, kind="secondary", icon=None):
         b = button(text, kind, icon)
@@ -323,7 +312,8 @@ class GifTab(Page):
         box = card()
         box.setObjectName("preview")
         layout = QVBoxLayout(box)
-        layout.setContentsMargins(theme.px(14), theme.px(10), theme.px(14), theme.px(14))
+        layout.setContentsMargins(8, 6, 8, 8)
+        layout.setSpacing(4)
         layout.addWidget(label(caption, "caption"))
         layout.addWidget(view, 1)
         return box
@@ -346,6 +336,8 @@ class GifTab(Page):
             self.tree.addTopLevelItem(row)
             self.items[str(path)] = row
         self.tree.setSortingEnabled(True)
+        self.list_summary.setText(f"{len(videos)} video(s). Click one to set its clip." if videos
+                                  else "No videos in this folder.")
         self.app.log(f"Loaded {len(videos)} video(s). Reading their lengths...")
         self._clear_editor()
         self._read_all_lengths([str(p) for p in videos])
@@ -409,6 +401,7 @@ class GifTab(Page):
         if self.current != iid:  # the user has moved on to another video
             return
         duration = self.durations[iid]
+        self.editor_hint.setText(Path(iid).name)
         start, end = self.ranges.get(iid, (0.0, duration))
         self.timeline.set_range(duration, start, end)
         self._update_labels(start, end)
@@ -420,6 +413,7 @@ class GifTab(Page):
         self.start_edit.setText("")
         self.end_edit.setText("")
         self.length_label.setText("")
+        self.editor_hint.setText("Click a video in the list to set its clip.")
         self.start_view.show_message("No video selected")
         self.end_view.show_message("No video selected")
 

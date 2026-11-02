@@ -1,82 +1,82 @@
-"""Line icons drawn with Pillow, so no image files need to be bundled with the app."""
+"""Line icons drawn with Pillow, so no image files need to be bundled with the app.
+
+All icons sit on a 24 x 24 grid, use the same stroke weight and round ends, and are outlines only."""
 from PIL import Image, ImageDraw
 from PySide6.QtGui import QIcon, QImage, QPixmap
 
 import theme
 
 SUPERSAMPLE = 4  # draw bigger, then shrink, for smooth edges
+STROKE = 1.7     # on the 24-unit grid
 
 
-def _draw(name, colour, px):
-    img = Image.new("RGBA", (px, px), (0, 0, 0, 0))
+def _draw(name, colour, size):
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    k = px / 24            # the icons are designed on a 24 x 24 grid
-    w = max(1, round(2.2 * k))
+    k = size / 24
+    w = max(1, round(STROKE * k))
 
-    def pts(p):
-        return [(x * k, y * k) for x, y in p]
+    def line(*points):
+        pts = [(x * k, y * k) for x, y in points]
+        d.line(pts, fill=colour, width=w, joint="curve")
+        r = w / 2
+        for x, y in (pts[0], pts[-1]):  # round ends
+            d.ellipse([x - r, y - r, x + r, y + r], fill=colour)
 
-    def line(p):
-        d.line(pts(p), fill=colour, width=w, joint="curve")
-
-    def box(x0, y0, x1, y1, r=0):
+    def box(x0, y0, x1, y1, r=2.5):
         d.rounded_rectangle([x0 * k, y0 * k, x1 * k, y1 * k], radius=r * k, outline=colour, width=w)
 
-    def solid(p):
-        d.polygon(pts(p), fill=colour)
-
-    def dot(x, y, r):
-        d.ellipse([(x - r) * k, (y - r) * k, (x + r) * k, (y + r) * k], fill=colour)
+    def ring(cx, cy, r):
+        d.ellipse([(cx - r) * k, (cy - r) * k, (cx + r) * k, (cy + r) * k], outline=colour, width=w)
 
     def folder():
-        line([(3, 7), (9.5, 7), (11.5, 9), (21, 9), (21, 19), (3, 19), (3, 7)])
+        line((3.5, 18.5), (3.5, 6.5), (9, 6.5), (11, 8.5), (20.5, 8.5), (20.5, 18.5), (3.5, 18.5))
 
-    if name == "silent":
-        line([(3, 9), (7, 9), (12, 5), (12, 19), (7, 15), (3, 15), (3, 9)])
-        line([(16, 9), (21, 15)])
-        line([(21, 9), (16, 15)])
-    elif name == "gif":
-        box(3, 5, 21, 19, 3)
-        solid([(10, 9), (10, 15), (15.5, 12)])
-    elif name == "zip":
+    if name == "silent":       # speaker with a cross
+        line((4, 9.5), (7.5, 9.5), (12, 5.5), (12, 18.5), (7.5, 14.5), (4, 14.5), (4, 9.5))
+        line((15.5, 9.5), (20, 14.5))
+        line((20, 9.5), (15.5, 14.5))
+    elif name == "gif":        # frame with a play mark
+        box(3.5, 5.5, 20.5, 18.5)
+        line((10.5, 9.5), (10.5, 14.5), (14.5, 12), (10.5, 9.5))
+    elif name == "duplicate":  # two overlapping frames
+        box(3.5, 8.5, 15.5, 20.5)
+        line((8.5, 5.5), (8.5, 5), (9, 3.5), (19, 3.5), (20.5, 5), (20.5, 14), (19, 15.5), (18.5, 15.5))
+    elif name == "zip":        # folder with a zip line
         folder()
-        d.rectangle([11 * k, 11 * k, 13 * k, 13 * k], fill=colour)
-        d.rectangle([11 * k, 14 * k, 13 * k, 16 * k], fill=colour)
-    elif name == "image":
-        box(3, 4, 21, 20, 3)
-        line([(5, 17), (10, 11.5), (13.5, 15.5), (16, 13), (19, 17)])
-        dot(8.5, 8.5, 1.6)
-    elif name == "duplicate":
-        box(3, 7, 15, 19, 2)
-        box(9, 3, 21, 15, 2)
-    elif name == "copy_folder":
+        line((12, 10.5), (12, 11.5))
+        line((12, 13.5), (12, 14.5))
+        line((12, 16.5), (12, 17))
+    elif name == "image":      # picture
+        box(3.5, 4.5, 20.5, 19.5)
+        line((6.5, 16.5), (10.5, 12), (13.5, 15), (15.5, 13), (18, 16.5))
+        ring(9, 8.8, 1.4)
+    elif name == "copy_folder":  # folder with a plus
         folder()
-        line([(12, 11), (12, 16)])
-        line([(9.5, 13.5), (14.5, 13.5)])
+        line((12, 11), (12, 16))
+        line((9.5, 13.5), (14.5, 13.5))
     elif name == "search":
-        d.ellipse([(10.5 - 6) * k, (10.5 - 6) * k, (10.5 + 6) * k, (10.5 + 6) * k], outline=colour, width=w)
-        line([(15, 15), (20, 20)])
+        ring(10.5, 10.5, 6)
+        line((15, 15), (20, 20))
     elif name == "move":
-        line([(3, 12), (16, 12)])
-        line([(12, 8), (16, 12), (12, 16)])
-        line([(4, 19.5), (20, 19.5)])
-    elif name == "folder":
-        folder()
-    elif name == "brush":
-        line([(4, 20), (9, 15)])
-        solid([(9, 13), (14, 8), (17, 11), (12, 16)])
-        line([(15, 7), (18, 4)])
-    elif name == "logo":
-        box(3, 3, 11, 11, 2)
-        box(13, 3, 21, 11, 2)
-        box(8, 13, 16, 21, 2)
+        line((4, 12), (17, 12))
+        line((13, 8), (17, 12), (13, 16))
+        line((20.5, 5), (20.5, 19))
+    elif name == "log":        # lines of text
+        line((5, 7), (19, 7))
+        line((5, 12), (19, 12))
+        line((5, 17), (14, 17))
+    elif name == "logo":       # three tiles
+        box(3.5, 3.5, 10.5, 10.5, 2)
+        box(13.5, 3.5, 20.5, 10.5, 2)
+        box(8.5, 13.5, 15.5, 20.5, 2)
     return img
 
 
 _cache = {}
 
 
-def icon(name, colour=None, size=20):
+def icon(name, colour=None, size=18):
     """A QIcon of the named icon, drawn at the given size in pixels."""
     colour = colour or theme.TEXT
     key = (name, colour, size)

@@ -4,9 +4,9 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QSize, Qt
 
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout,
                                QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSplitter,
                                QStackedWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
@@ -18,9 +18,9 @@ import theme
 import webp_convert
 from duplicates_tab import DuplicatesPage
 from gif_tab import GifTab
-from themes import CORNER_STYLES, DEFAULT_THEME, FONT_CHOICES, PALETTES, SIZE_CHOICES
-from widgets import (Bridge, FolderChecklist, Page, add_folder, button, card, divider, label, line_edit, make_tree,
-                     muted, remember, reset_remembered, results_bar, results_panel, tool_row, toolbar)
+from widgets import (Bridge, ElidedLabel, FIELD_LABEL_W, FolderChecklist, Page, add_folder, button, divider,
+                     field_label, label, line_edit, make_tree, remember, reset_remembered, results_bar,
+                     results_panel, tool_row, toolbar)
 
 ITEM_PATH = Qt.UserRole
 
@@ -33,11 +33,6 @@ def fmt_size(n):
     return f"{n / 1024 ** 2:.1f} MB"
 
 
-def _nearest(mapping, value):
-    """The label in mapping whose number is closest to value."""
-    return min(mapping, key=lambda k: abs(mapping[k] - value))
-
-
 class SilentPage(Page):
     title = "Silent videos"
     subtitle = "Find videos with no audio, select the ones you want, then move them to another folder."
@@ -47,36 +42,38 @@ class SilentPage(Page):
         self.recursive = QCheckBox("Include subfolders")
         self.recursive.setChecked(True)
         self.loud = QCheckBox("Also check audio level (slower)")
-        self.threshold = line_edit("-60", width=70)
+        self.threshold = line_edit("-60", width=56)
         self.threshold.setToolTip("When the audio level is checked, videos quieter than this count as silent")
 
         bar, rows = toolbar()
         top = tool_row()
         add_folder(top, "Video folder", self.folder, "Choose the video folder")
-        scan = button("Scan", "primary", icons.icon("search", theme.ON_GREEN, 18))
+        scan = button("Scan", "primary", icons.icon("search", theme.ON_ACCENT, 16))
         scan.clicked.connect(self.scan)
         top.addWidget(divider())
         top.addWidget(scan)
         rows.addLayout(top)
         opts = tool_row()
+        opts.addWidget(field_label("Options"))
         opts.addWidget(self.recursive)
-        opts.addSpacing(theme.px(12))
+        opts.addSpacing(8)
         opts.addWidget(self.loud)
-        opts.addSpacing(theme.px(4))
-        opts.addWidget(muted("Threshold (dB)"))
+        opts.addSpacing(8)
+        opts.addWidget(label("Threshold", "muted"))
         opts.addWidget(self.threshold)
+        opts.addWidget(label("dB", "muted"))
         opts.addStretch(1)
         rows.addLayout(opts)
         self.body.addWidget(bar)
 
         panel, pv = results_panel()
-        self.summary = muted("Choose a folder and click Scan.")
+        self.summary = ElidedLabel("Choose a folder and click Scan.")
         select = button("Select all")
         select.clicked.connect(lambda: self.tree.selectAll())
-        move = button("Move selected", "primary", icons.icon("move", theme.ON_GREEN, 18))
+        move = button("Move selected", "primary", icons.icon("move", theme.ON_ACCENT, 16))
         move.clicked.connect(self.move_selected)
         pv.addLayout(results_bar(self.summary, select, move))
-        self.tree = make_tree(("File", "Reason"), (560, 260))
+        self.tree = make_tree(("File", "Reason"), (400, 280))
         remember("silent_tree", self.tree, header=True)
         pv.addWidget(self.tree, 1)
         self.body.addWidget(panel, 1)
@@ -141,7 +138,7 @@ class ZipPage(Page):
         top = tool_row()
         add_folder(top, "Parent folder", self.source, "Choose the parent folder", on_change=self.refresh)
         self.source.editingFinished.connect(self.refresh)
-        run = button("Zip ticked folders", "primary", icons.icon("zip", theme.ON_GREEN, 18))
+        run = button("Zip ticked folders", "primary", icons.icon("zip", theme.ON_ACCENT, 16))
         run.clicked.connect(self.run)
         top.addWidget(divider())
         top.addWidget(run)
@@ -212,32 +209,34 @@ class WebpPage(Page):
         scan = button("Scan folder")
         scan.clicked.connect(self.scan)
         top.addWidget(scan)
-        convert_all = button("Convert all listed", "primary", icons.icon("image", theme.ON_GREEN, 18))
+        convert_all = button("Convert all listed", "primary", icons.icon("image", theme.ON_ACCENT, 16))
         convert_all.clicked.connect(lambda: self.convert(False))
         top.addWidget(divider())
         top.addWidget(convert_all)
         rows.addLayout(top)
         opts = tool_row()
-        opts.addWidget(muted("JPG quality"))
+        opts.addWidget(field_label("JPG quality"))
+        self.quality.setFixedWidth(90)
         opts.addWidget(self.quality)
-        opts.addSpacing(theme.px(12))
+        opts.addSpacing(8)
         opts.addWidget(self.recursive)
-        opts.addSpacing(theme.px(12))
+        opts.addSpacing(8)
         opts.addWidget(self.delete_originals)
         opts.addStretch(1)
         rows.addLayout(opts)
-        self.quality_info = label(self.QUALITY_INFO[95] + "  JPG can't store transparency (it becomes white), "
+        self.quality_info = ElidedLabel(self.QUALITY_INFO[95] + "  JPG can't store transparency (it becomes white), "
                                   "animated WebP keeps only its first frame, and metadata is not kept.",
-                                  "caption", wrap=True)
+                                  "caption")
+        self.quality_info.setContentsMargins(FIELD_LABEL_W + 8, 0, 0, 0)
         rows.addWidget(self.quality_info)
         self.body.addWidget(bar)
 
         panel, pv = results_panel()
-        self.summary = muted("Choose a folder to see its WebP files.")
+        self.summary = ElidedLabel("Choose a folder to see its WebP files.")
         convert_sel = button("Convert selected")
         convert_sel.clicked.connect(lambda: self.convert(True))
         pv.addLayout(results_bar(self.summary, convert_sel))
-        self.tree = make_tree(("File", "Folder", "Size"), (300, 420, 110))
+        self.tree = make_tree(("File", "Folder", "Size"), (300, 360, 90))
         remember("webp_tree", self.tree, header=True)
         pv.addWidget(self.tree, 1)
         self.body.addWidget(panel, 1)
@@ -316,9 +315,9 @@ class CopyPage(Page):
         self.dest = line_edit(placeholder="Choose the destination")
         bar, rows = toolbar()
         top = tool_row()
-        add_folder(top, "Folder to copy", self.source, "Choose the folder to copy", on_change=self.refresh)
+        add_folder(top, "Copy from", self.source, "Choose the folder to copy", on_change=self.refresh)
         self.source.editingFinished.connect(self.refresh)
-        run = button("Copy folder structure", "primary", icons.icon("copy_folder", theme.ON_GREEN, 18))
+        run = button("Copy folder structure", "primary", icons.icon("copy_folder", theme.ON_ACCENT, 16))
         run.clicked.connect(self.run)
         top.addWidget(divider())
         top.addWidget(run)
@@ -351,111 +350,6 @@ class CopyPage(Page):
                                 skip=self.checklist.unchecked_paths())
 
 
-class Tile(QFrame):
-    """A clickable theme preview."""
-    clicked = Signal()
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.clicked.emit()
-
-
-class AppearancePage(Page):
-    title = "Appearance"
-    subtitle = "Choose a theme, font, size and corner style. Changes apply straight away and are remembered."
-
-    def build(self):
-        themes_card = card()
-        t = QVBoxLayout(themes_card)
-        t.setContentsMargins(theme.px(18), theme.px(16), theme.px(18), theme.px(16))
-        t.addWidget(label("Theme", "heading"))
-        t.addWidget(muted("Based on the designs you shared. Click a theme to use it."))
-        grid = QGridLayout()
-        grid.setSpacing(theme.px(12))
-        for i, name in enumerate(PALETTES):
-            grid.addWidget(self._theme_tile(name), i // 4, i % 4)
-        t.addLayout(grid)
-        self.body.addWidget(themes_card)
-
-        font_card = card()
-        f = QVBoxLayout(font_card)
-        f.setContentsMargins(theme.px(18), theme.px(16), theme.px(18), theme.px(16))
-        row = QHBoxLayout()
-        row.addWidget(label("Font", "heading"))
-        row.addSpacing(theme.px(12))
-        installed = theme.installed_families()
-        choices = [name for name in FONT_CHOICES if name in installed] or [theme.FAMILY]
-        font_box = QComboBox()
-        font_box.addItems(choices)
-        font_box.setCurrentText(theme.FAMILY if theme.FAMILY in choices else choices[0])
-        font_box.currentTextChanged.connect(lambda name: self.app.change_appearance(font=name))
-        font_box.setMinimumWidth(theme.px(240))
-        row.addWidget(font_box)
-        row.addSpacing(theme.px(12))
-        row.addWidget(muted("Only fonts installed on this PC are listed."))
-        row.addStretch(1)
-        f.addLayout(row)
-        sample = QLabel("The quick brown fox jumps over the lazy dog. 0123456789")
-        sample.setFont(theme.font("sample"))
-        f.addWidget(sample)
-        self.body.addWidget(font_card)
-
-        size_card = card()
-        s = QGridLayout(size_card)
-        s.setContentsMargins(theme.px(18), theme.px(16), theme.px(18), theme.px(16))
-        s.setHorizontalSpacing(theme.px(14))
-        s.setVerticalSpacing(theme.px(12))
-        self._option_row(s, 0, "Size", SIZE_CHOICES, theme.SIZE, "size",
-                         "Scales the text and every button, box and table together.")
-        self._option_row(s, 1, "Corner style", CORNER_STYLES, theme.RADIUS, "radius_scale",
-                         "How rounded the cards, buttons and boxes are.")
-        s.setColumnStretch(2, 1)
-        self.body.addWidget(size_card)
-
-        reset = button("Reset to default")
-        reset.clicked.connect(self._reset)
-        self.body.addWidget(reset, 0, Qt.AlignLeft)
-        self.body.addStretch(1)
-
-    def _option_row(self, grid, row, title, mapping, current, key, hint):
-        grid.addWidget(label(title, "heading"), row, 0)
-        box = QComboBox()
-        box.addItems(list(mapping))
-        box.setCurrentText(_nearest(mapping, current))
-        box.setMinimumWidth(theme.px(180))
-        box.currentTextChanged.connect(lambda choice, k=key, m=mapping: self.app.change_appearance(**{k: m[choice]}))
-        grid.addWidget(box, row, 1)
-        grid.addWidget(muted(hint), row, 2)
-
-    def _theme_tile(self, name):
-        p = PALETTES[name]
-        selected = name == theme.CURRENT_THEME
-        tile = Tile()
-        tile.setCursor(Qt.CursorShape.PointingHandCursor)
-        tile.setStyleSheet(f"QFrame {{ background: {p['APP_BG']}; border-radius: {theme.radius(14)}px; "
-                           f"border: {3 if selected else 1}px solid "
-                           f"{p['GREEN'] if selected else theme.CARD_BORDER}; }}")
-        v = QVBoxLayout(tile)
-        v.setContentsMargins(theme.px(12), theme.px(12), theme.px(12), theme.px(12))
-        strip = QHBoxLayout()
-        strip.setSpacing(theme.px(8))
-        for colour in (p["CARD"], p["TRACK"], p["GREEN"]):
-            block = QFrame()
-            block.setFixedSize(theme.px(56), theme.px(36))
-            block.setStyleSheet(f"background: {colour}; border-radius: {theme.radius(8)}px; border: none;")
-            strip.addWidget(block)
-        strip.addStretch(1)
-        v.addLayout(strip)
-        name_label = QLabel(name + ("  (in use)" if selected else ""))
-        name_label.setStyleSheet(f"color: {p['TEXT']}; font-weight: bold; background: transparent; border: none;")
-        v.addWidget(name_label)
-        tile.clicked.connect(lambda n=name: self.app.change_appearance(theme=n))
-        return tile
-
-    def _reset(self):
-        self.app.change_appearance(theme=DEFAULT_THEME, font="Inter", size=1.0, radius_scale=1.0)
-
-
 NAV = [
     ("silent", "Silent videos", "silent"),
     ("gif", "GIF maker", "gif"),
@@ -463,7 +357,6 @@ NAV = [
     ("zip", "Zip subfolders", "zip"),
     ("webp", "WebP to JPG", "image"),
     ("copy", "Copy folder structure", "copy_folder"),
-    ("appearance", "Appearance", "brush"),
 ]
 PAGES = {
     "silent": SilentPage,
@@ -472,7 +365,6 @@ PAGES = {
     "zip": ZipPage,
     "webp": WebpPage,
     "copy": CopyPage,
-    "appearance": AppearancePage,
 }
 
 
@@ -480,8 +372,8 @@ class App(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Media Toolbox")
-        self.resize(theme.px(1280), theme.px(880))
-        self.setMinimumSize(760, 520)
+        self.resize(1280, 820)
+        self.setMinimumSize(1024, 620)  # every page fits from this size up; nothing scrolls sideways
         self.bridge = Bridge()
         self.current_key = "silent"
         self.nav = {}
@@ -503,7 +395,7 @@ class App(QMainWindow):
         for key, cls in PAGES.items():
             holder = QWidget()
             hl = QVBoxLayout(holder)
-            hl.setContentsMargins(theme.px(20), theme.px(16), theme.px(20), theme.px(14))
+            hl.setContentsMargins(12, 10, 12, 10)
             page = cls(self)
             hl.addWidget(page)
             self.stack.addWidget(holder)
@@ -514,17 +406,19 @@ class App(QMainWindow):
         right.setSpacing(0)
         self.split = QSplitter(Qt.Vertical)
         self.split.setChildrenCollapsible(False)
-        self.split.setHandleWidth(theme.px(6))
+        self.split.setHandleWidth(4)
         self.split.addWidget(self.stack)
         self.split.addWidget(self._log_panel())
         self.split.setStretchFactor(0, 1)
-        self.split.setSizes([theme.px(640), theme.px(180)])
+        self.split.setSizes([620, 170])
         remember("main_split2", self.split)
         right.addWidget(self.split, 1)
         right.addWidget(self._status_bar())
         h.addLayout(right, 1)
 
         self.setCentralWidget(root)
+        root.setFocusPolicy(Qt.ClickFocus)
+        root.setFocus()  # start with nothing highlighted
         self._set_log_open(settings.load().get("log_open", False), save=False)
         self.show_page(self.current_key)
 
@@ -532,31 +426,31 @@ class App(QMainWindow):
         """A thin column of tool icons. Hover an icon to see the tool's name."""
         rail = QFrame()
         rail.setObjectName("rail")
-        rail.setFixedWidth(theme.px(64))
+        rail.setFixedWidth(52)
         v = QVBoxLayout(rail)
-        v.setContentsMargins(theme.px(10), theme.px(14), theme.px(10), theme.px(14))
-        v.setSpacing(theme.px(6))
+        v.setContentsMargins(8, 10, 8, 10)
+        v.setSpacing(4)
         logo = QLabel()
         logo.setToolTip("Media Toolbox")
-        logo.setPixmap(icons.icon("logo", theme.GREEN, theme.px(30)).pixmap(theme.px(30), theme.px(30)))
+        logo.setPixmap(icons.icon("logo", theme.ACCENT, 22).pixmap(22, 22))
         logo.setAlignment(Qt.AlignCenter)
+        logo.setFixedHeight(28)
         v.addWidget(logo)
-        v.addSpacing(theme.px(14))
+        v.addSpacing(10)
         self.nav = {}
         for key, text, icon_name in NAV:
-            if key == "appearance":
-                v.addStretch(1)  # settings sit at the bottom, apart from the tools
             btn = QPushButton()
             btn.setProperty("rail", "true")
             btn.setToolTip(text)
             btn.setAccessibleName(text)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setFocusPolicy(Qt.NoFocus)  # the active tool shows its state, not a focus ring
-            btn.setFixedSize(theme.px(44), theme.px(44))
-            btn.setIconSize(QSize(theme.px(22), theme.px(22)))
+            btn.setFixedSize(36, 36)
+            btn.setIconSize(QSize(20, 20))
             btn.clicked.connect(lambda _c=False, k=key: self.show_page(k))
             v.addWidget(btn, 0, Qt.AlignHCenter)
             self.nav[key] = (btn, icon_name)
+        v.addStretch(1)
         return rail
 
     def _status_bar(self):
@@ -564,18 +458,18 @@ class App(QMainWindow):
         bar = QFrame()
         bar.setObjectName("statusbar")
         h = QHBoxLayout(bar)
-        h.setContentsMargins(theme.px(20), theme.px(6), theme.px(12), theme.px(6))
-        h.setSpacing(theme.px(12))
-        self.status = label("Ready")
-        self.status.setMinimumWidth(theme.px(160))
+        bar.setFixedHeight(36)
+        h.setContentsMargins(14, 0, 8, 0)
+        h.setSpacing(12)
+        self.status = ElidedLabel("Ready")
         h.addWidget(self.status, 1)
         self.bar = QProgressBar()
         self.bar.setRange(0, 1000)
         self.bar.setValue(0)
         self.bar.setTextVisible(False)
-        self.bar.setFixedWidth(theme.px(280))
+        self.bar.setFixedWidth(240)
         h.addWidget(self.bar)
-        self.log_toggle = button("Log")
+        self.log_toggle = button("Log", icon=icons.icon("log", theme.MUTED, 16))
         self.log_toggle.setCheckable(True)
         self.log_toggle.setToolTip("Show or hide the log of everything the tools have done")
         self.log_toggle.toggled.connect(lambda on: self._set_log_open(on))
@@ -586,8 +480,8 @@ class App(QMainWindow):
         self.log_panel = QFrame()
         self.log_panel.setObjectName("logpanel")
         v = QVBoxLayout(self.log_panel)
-        v.setContentsMargins(theme.px(20), theme.px(10), theme.px(12), theme.px(10))
-        v.setSpacing(theme.px(6))
+        v.setContentsMargins(12, 8, 12, 8)
+        v.setSpacing(6)
         head = QHBoxLayout()
         head.addWidget(label("Log", "heading"))
         head.addStretch(1)
@@ -621,32 +515,7 @@ class App(QMainWindow):
             btn.setProperty("active", "true" if active else "false")
             btn.style().unpolish(btn)
             btn.style().polish(btn)
-            btn.setIcon(icons.icon(icon_name, theme.GREEN if active else theme.MUTED, theme.px(22)))
-
-    # ---------- appearance ----------
-    def change_appearance(self, **changes):
-        """Save a new appearance choice and rebuild the screen with it. Rebuilding is deferred, so it
-        never happens inside the widget's own click handler."""
-        current = {
-            "theme": theme.CURRENT_THEME,
-            "font": theme.WANTED_FAMILY,
-            "size": theme.SIZE,
-            "radius_scale": theme.RADIUS,
-        }
-        current.update(changes)
-        settings.save(current)
-        apply_settings(current)
-        QTimer.singleShot(0, self._rebuild)
-
-    def _rebuild(self):
-        log_text = self.log_view.toPlainText()
-        status = self.status.text()
-        progress = self.bar.value()
-        theme.apply(QApplication.instance())
-        self._build()
-        self.log_view.setPlainText(log_text)
-        self.status.setText(status)
-        self.bar.setValue(progress)
+            btn.setIcon(icons.icon(icon_name, theme.ACCENT if active else theme.MUTED, 20))
 
     # ---------- thread-safe updates ----------
     # Background threads never touch the UI directly; they hand callables to the UI thread.
@@ -693,22 +562,9 @@ class App(QMainWindow):
         threading.Thread(target=worker, daemon=True).start()
 
 
-def apply_settings(saved):
-    """Apply saved appearance choices to the theme module."""
-    theme.use_theme(saved.get("theme", DEFAULT_THEME))
-    theme.set_family(saved.get("font", theme.BUNDLED_FAMILY))
-    theme.set_look(saved.get("size", 1.0), saved.get("radius_scale", 1.0))
-
-
 def main():
     app = QApplication(sys.argv)
     theme.load_fonts()
-    saved = settings.load()
-    if not saved.get("design_v2"):
-        # The redesign ships with a new default theme. Switch to it once; Appearance can switch back.
-        settings.save({"theme": DEFAULT_THEME, "design_v2": True})
-        saved = settings.load()
-    apply_settings(saved)
     theme.apply(app)
     window = App()
     window.show()

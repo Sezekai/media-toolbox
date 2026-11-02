@@ -1,7 +1,7 @@
 """Shared building blocks: cards, buttons, folder rows, tables, the page layout and thread-safe UI calls."""
 from PySide6.QtCore import QObject, QSize, Qt, Signal
-from PySide6.QtWidgets import (QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea,
-                               QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy,
+                               QHeaderView, QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator, QVBoxLayout, QWidget)
 
 import os
 from pathlib import Path
@@ -29,8 +29,9 @@ class Bridge(QObject):
 
 
 def card():
+    """A panel: the dark surface that holds one part of a page."""
     frame = QFrame()
-    frame.setObjectName("card")
+    frame.setObjectName("panel")
     return frame
 
 
@@ -45,13 +46,45 @@ def muted(text, wrap=False):
     return label(text, "muted", wrap)
 
 
+def empty_state(text):
+    """Centred, quiet text for an empty list or panel."""
+    w = label(text, "empty", wrap=True)
+    w.setAlignment(Qt.AlignCenter)
+    return w
+
+
+class ElidedLabel(QLabel):
+    """One line of text that shortens with "..." instead of pushing the window wider."""
+
+    def __init__(self, text="", role="muted"):
+        super().__init__(text)
+        self.setProperty("role", role)
+        self._full = text
+        self.setToolTip(text)
+        self.setMinimumWidth(1)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+    def setText(self, text):
+        self._full = text
+        self.setToolTip(text)
+        self._elide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self):
+        shown = self.fontMetrics().elidedText(self._full, Qt.ElideRight, max(1, self.contentsRect().width()))
+        QLabel.setText(self, shown)
+
+
 def button(text, kind="secondary", icon=None):
     b = QPushButton(text)
     b.setProperty("kind", kind)
     b.setCursor(Qt.CursorShape.PointingHandCursor)
     if icon is not None:
         b.setIcon(icon)
-        b.setIconSize(QSize(theme.px(18), theme.px(18)))
+        b.setIconSize(QSize(16, 16))
     return b
 
 
@@ -59,21 +92,25 @@ def line_edit(text="", placeholder="", width=None):
     e = QLineEdit(text)
     e.setPlaceholderText(placeholder)
     if width:
-        e.setFixedWidth(theme.px(width))
+        e.setFixedWidth(width)
     return e
 
 
 def make_tree(headers, widths):
-    """A table whose columns can be dragged wider or narrower by their heading dividers."""
+    """A list whose first column takes the spare width, so the list never scrolls sideways.
+    The other columns keep their width and can be dragged wider or narrower."""
     tree = QTreeWidget()
     tree.setHeaderLabels(list(headers))
     tree.setRootIsDecorated(False)
     tree.setUniformRowHeights(True)
     tree.setSelectionMode(QTreeWidget.ExtendedSelection)
-    tree.header().setStretchLastSection(True)
-    tree.header().setMinimumSectionSize(theme.px(70))
+    tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    tree.header().setStretchLastSection(False)
+    tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+    tree.header().setMinimumSectionSize(60)
+    tree.header().setHighlightSections(False)
     for i, width in enumerate(widths):
-        tree.setColumnWidth(i, theme.px(width))
+        tree.setColumnWidth(i, width)
     return tree
 
 
@@ -87,7 +124,7 @@ def pick_folder(edit, title):
 
 def folder_row(grid, row, text, edit, title, on_change=None):
     """Label, path box and Browse button on one row of a QGridLayout (the path box stretches)."""
-    grid.addWidget(label(text), row, 0)
+    grid.addWidget(muted(text), row, 0)
     grid.addWidget(edit, row, 1)
     browse = button("Browse")
 
@@ -101,25 +138,36 @@ def folder_row(grid, row, text, edit, title, on_change=None):
 
 
 def toolbar():
-    """The bar across the top of a tool: folders, options and the Run button. Returns (frame, rows layout)."""
+    """The bar across the top of a tool: folders, options and the main button. Returns (frame, rows layout)."""
     frame = QFrame()
     frame.setObjectName("toolbar")
     rows = QVBoxLayout(frame)
-    rows.setContentsMargins(theme.px(12), theme.px(10), theme.px(12), theme.px(10))
-    rows.setSpacing(theme.px(8))
+    rows.setContentsMargins(theme.PAD, theme.PAD - 2, theme.PAD, theme.PAD - 2)
+    rows.setSpacing(theme.GAP - 2)
     return frame, rows
 
 
 def tool_row():
     row = QHBoxLayout()
-    row.setSpacing(theme.px(8))
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(theme.GAP)
     return row
+
+
+FIELD_LABEL_W = 88  # labels in front of fields share one width, so the fields line up
+
+
+def field_label(text):
+    w = muted(text)
+    w.setFixedWidth(FIELD_LABEL_W)
+    return w
 
 
 def add_folder(row, text, edit, title, on_change=None, stretch=1):
     """Label, path box and Browse button, added to a tool bar row."""
     if text:
-        row.addWidget(muted(text))
+        row.addWidget(field_label(text))
+    edit.setMinimumWidth(120)
     row.addWidget(edit, stretch)
     browse = button("Browse")
 
@@ -136,14 +184,15 @@ def divider():
     """A thin upright line between groups in a tool bar row."""
     line = QFrame()
     line.setObjectName("divider")
-    line.setFixedWidth(1)
+    line.setFixedSize(1, 18)
     return line
 
 
 def results_bar(summary, *buttons):
     """The line above a results list: a summary on the left, the list's actions on the right."""
     row = QHBoxLayout()
-    row.setSpacing(theme.px(8))
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(theme.GAP - 2)
     row.addWidget(summary, 1)
     for b in buttons:
         row.addWidget(b)
@@ -151,17 +200,17 @@ def results_bar(summary, *buttons):
 
 
 def results_panel():
-    """The card that holds a results list and fills the rest of the page. Returns (frame, layout)."""
+    """The panel that holds a results list and fills the rest of the page. Returns (frame, layout)."""
     frame = card()
     v = QVBoxLayout(frame)
-    v.setContentsMargins(theme.px(12), theme.px(10), theme.px(12), theme.px(12))
-    v.setSpacing(theme.px(8))
+    v.setContentsMargins(theme.PAD, theme.PAD - 2, theme.PAD, theme.PAD)
+    v.setSpacing(theme.GAP - 2)
     return frame, v
 
 
 class Page(QWidget):
-    """A tool page: a title and subtitle, then the page content in a scroll area.
-    The content fills the window; it only scrolls when the window is smaller than the content needs."""
+    """A tool page: a one-line header (title, then what the tool does), then the page content.
+    The content always fits the window; lists scroll inside themselves, the page never scrolls sideways."""
     title = ""
     subtitle = ""
 
@@ -170,22 +219,20 @@ class Page(QWidget):
         self.app = app
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-        outer.addWidget(label(self.title, "title"))
-        outer.addSpacing(theme.px(2))
-        outer.addWidget(muted(self.subtitle, wrap=True))
-        outer.addSpacing(theme.px(12))
+        outer.setSpacing(theme.GAP)
+        head = QHBoxLayout()
+        head.setContentsMargins(2, 0, 0, 0)
+        head.setSpacing(12)
+        head.addWidget(label(self.title, "title"))
+        head.addWidget(ElidedLabel(self.subtitle), 1)
+        outer.addLayout(head)
 
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.NoFrame)
         self.content = QWidget()
         self.content.setObjectName("page")
         self.body = QVBoxLayout(self.content)
-        self.body.setContentsMargins(0, 0, theme.px(12), 0)
-        self.body.setSpacing(theme.px(12))
-        self.scroll.setWidget(self.content)
-        outer.addWidget(self.scroll, 1)
+        self.body.setContentsMargins(0, 0, 0, 0)
+        self.body.setSpacing(theme.GAP)
+        outer.addWidget(self.content, 1)
         self.build()
 
     def build(self):
@@ -205,6 +252,7 @@ def reset_remembered():
 def remember(key, widget, header=False):
     """Restore the saved size of a splitter (or of a table's columns when header=True), and save it
     whenever it is dragged."""
+    key = "v3:" + key  # sizes saved before the compact redesign are left behind
     target = widget.header() if header else widget
     _remembered[key] = target
     saved = settings.load().get("layout", {}).get(key)
