@@ -66,6 +66,12 @@ def _draw(name, colour, size):
         line((5, 7), (19, 7))
         line((5, 12), (19, 12))
         line((5, 17), (14, 17))
+    elif name == "collapse":   # double chevron pointing left
+        line((13, 7), (8, 12), (13, 17))
+        line((18.5, 7), (13.5, 12), (18.5, 17))
+    elif name == "expand":     # double chevron pointing right
+        line((6, 7), (11, 12), (6, 17))
+        line((11.5, 7), (16.5, 12), (11.5, 17))
     elif name == "logo":       # three tiles
         box(3.5, 3.5, 10.5, 10.5, 2)
         box(13.5, 3.5, 20.5, 10.5, 2)
@@ -85,3 +91,14 @@ def icon(name, colour=None, size=18):
         qimg = QImage(img.tobytes("raw", "RGBA"), size, size, 4 * size, QImage.Format_RGBA8888).copy()
         _cache[key] = QIcon(QPixmap.fromImage(qimg))
     return _cache[key]
+
+
+def swatch(colour, size=18):
+    """A round colour sample, used in the accent colour menu."""
+    big = size * SUPERSAMPLE
+    img = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+    inset = big * 0.12
+    ImageDraw.Draw(img).ellipse([inset, inset, big - inset, big - inset], fill=colour)
+    img = img.resize((size, size), Image.LANCZOS).convert("RGBA")
+    qimg = QImage(img.tobytes("raw", "RGBA"), size, size, 4 * size, QImage.Format_RGBA8888).copy()
+    return QIcon(QPixmap.fromImage(qimg))

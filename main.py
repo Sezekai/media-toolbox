@@ -5,8 +5,9 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor
 
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QColorDialog, QComboBox, QMenu, QFileDialog, QFrame, QHBoxLayout,
                                QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSplitter,
                                QStackedWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
@@ -42,7 +43,7 @@ class SilentPage(Page):
         self.recursive = QCheckBox("Include subfolders")
         self.recursive.setChecked(True)
         self.loud = QCheckBox("Also check audio level (slower)")
-        self.threshold = line_edit("-60", width=48)
+        self.threshold = line_edit("-60", width=56)
         self.threshold.setToolTip("When the audio level is checked, videos quieter than this count as silent")
 
         bar, rows = toolbar()
@@ -216,7 +217,7 @@ class WebpPage(Page):
         rows.addLayout(top)
         opts = tool_row()
         opts.addWidget(field_label("JPG quality"))
-        self.quality.setFixedWidth(76)
+        self.quality.setFixedWidth(90)
         opts.addWidget(self.quality)
         opts.addSpacing(8)
         opts.addWidget(self.recursive)
@@ -350,6 +351,9 @@ class CopyPage(Page):
                                 skip=self.checklist.unchecked_paths())
 
 
+SIDEBAR_EXPANDED = 176  # with the tool names
+SIDEBAR_COLLAPSED = 44  # icons only
+
 NAV = [
     ("silent", "Silent videos", "silent"),
     ("gif", "GIF maker", "gif"),
@@ -373,7 +377,6 @@ class App(QMainWindow):
         super().__init__()
         self.setWindowTitle("Media Toolbox")
         self.resize(1280, 820)
-        self.setMinimumSize(960, 560)  # every page fits from this size up; nothing scrolls sideways
         self.bridge = Bridge()
         self.current_key = "silent"
         self.nav = {}
@@ -382,7 +385,7 @@ class App(QMainWindow):
 
     # ---------- layout ----------
     def _build(self):
-        """Icon rail on the left; the tool fills the rest; a status bar along the bottom with the log above it."""
+        """Sidebar on the left; the tool fills the rest; a status bar along the bottom with the log above it."""
         reset_remembered()
         root = QWidget()
         root.setObjectName("root")
@@ -395,7 +398,7 @@ class App(QMainWindow):
         for key, cls in PAGES.items():
             holder = QWidget()
             hl = QVBoxLayout(holder)
-            hl.setContentsMargins(10, 8, 10, 8)
+            hl.setContentsMargins(12, 10, 12, 10)
             page = cls(self)
             hl.addWidget(page)
             self.stack.addWidget(holder)
@@ -421,45 +424,131 @@ class App(QMainWindow):
         root.setFocus()  # start with nothing highlighted
         self._set_log_open(settings.load().get("log_open", False), save=False)
         self.show_page(self.current_key)
+        self._fit_window()
 
     def _rail(self):
-        """A thin column of tool icons. Hover an icon to see the tool's name."""
+        """The sidebar: the tools with their names, or just their icons when collapsed.
+        At the bottom: the accent colour menu and the collapse / expand button."""
+        self.expanded = bool(settings.load().get("sidebar_expanded", True))
         rail = QFrame()
         rail.setObjectName("rail")
-        rail.setFixedWidth(44)
+        self.rail = rail
         v = QVBoxLayout(rail)
         v.setContentsMargins(6, 8, 6, 8)
         v.setSpacing(2)
-        logo = QLabel()
-        logo.setToolTip("Media Toolbox")
-        logo.setPixmap(icons.icon("logo", theme.ACCENT, 20).pixmap(20, 20))
-        logo.setAlignment(Qt.AlignCenter)
-        logo.setFixedHeight(24)
-        v.addWidget(logo)
+        brand = QHBoxLayout()
+        brand.setContentsMargins(7, 0, 0, 0)
+        brand.setSpacing(10)
+        self.logo = QLabel()
+        self.logo.setToolTip("Media Toolbox")
+        self.logo.setFixedSize(18, 28)
+        self.brand_name = QLabel("Media Toolbox")
+        self.brand_name.setObjectName("brand")
+        brand.addWidget(self.logo)
+        brand.addWidget(self.brand_name, 1)
+        v.addLayout(brand)
         v.addSpacing(8)
         self.nav = {}
         for key, text, icon_name in NAV:
-            btn = QPushButton()
-            btn.setProperty("rail", "true")
-            btn.setToolTip(text)
-            btn.setAccessibleName(text)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setFocusPolicy(Qt.NoFocus)  # the active tool shows its state, not a focus ring
-            btn.setFixedSize(32, 32)
-            btn.setIconSize(QSize(18, 18))
+            btn = self._side_button(text)
             btn.clicked.connect(lambda _c=False, k=key: self.show_page(k))
-            v.addWidget(btn, 0, Qt.AlignHCenter)
+            v.addWidget(btn)
             self.nav[key] = (btn, icon_name)
         v.addStretch(1)
+        self.accent_btn = self._side_button("Accent colour")
+        self.accent_btn.clicked.connect(self._accent_menu)
+        v.addWidget(self.accent_btn)
+        self.collapse_btn = self._side_button("Collapse")
+        self.collapse_btn.clicked.connect(self._toggle_sidebar)
+        v.addWidget(self.collapse_btn)
+        self._apply_sidebar()
         return rail
+
+    def _side_button(self, text):
+        btn = QPushButton()
+        btn.setProperty("rail", "true")
+        btn.setProperty("label", text)
+        btn.setAccessibleName(text)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setFocusPolicy(Qt.NoFocus)  # the active tool shows its state, not a focus ring
+        btn.setFixedHeight(32)
+        btn.setIconSize(QSize(18, 18))
+        return btn
+
+    def _side_buttons(self):
+        return [btn for btn, _icon in self.nav.values()] + [self.accent_btn, self.collapse_btn]
+
+    def _apply_sidebar(self):
+        width = SIDEBAR_EXPANDED if self.expanded else SIDEBAR_COLLAPSED
+        self.rail.setFixedWidth(width)
+        self.brand_name.setVisible(self.expanded)
+        self.collapse_btn.setProperty("label", "Collapse" if self.expanded else "Expand")
+        for btn in self._side_buttons():
+            text = btn.property("label")
+            btn.setText(f"  {text}" if self.expanded else "")
+            btn.setToolTip("" if self.expanded else text)  # names show on hover when collapsed
+            btn.setFixedWidth(width - 12)
+        self._refresh_side_icons()
+        self._fit_window()
+
+    def _toggle_sidebar(self):
+        self.expanded = not self.expanded
+        settings.save({"sidebar_expanded": self.expanded})
+        self._apply_sidebar()
+
+    def _refresh_side_icons(self):
+        self.logo.setPixmap(icons.icon("logo", theme.ACCENT, 18).pixmap(18, 18))
+        for k, (btn, icon_name) in self.nav.items():
+            active = k == self.current_key
+            btn.setIcon(icons.icon(icon_name, theme.ACCENT if active else theme.MUTED, 18))
+        self.accent_btn.setIcon(icons.swatch(theme.ACCENT, 18))
+        self.collapse_btn.setIcon(icons.icon("collapse" if self.expanded else "expand", theme.MUTED, 18))
+
+    # ---------- accent colour ----------
+    def _accent_menu(self):
+        menu = QMenu(self)
+        current = theme.ACCENT.lower()
+        for name, colour in theme.ACCENT_PRESETS:
+            action = menu.addAction(icons.swatch(colour, 16), name)
+            action.setCheckable(True)
+            action.setChecked(colour.lower() == current)
+            action.triggered.connect(lambda _c=False, c=colour: self.set_accent(c))
+        menu.addSeparator()
+        custom = menu.addAction("Custom colour...")
+        custom.triggered.connect(self._custom_accent)
+        menu.exec(self.accent_btn.mapToGlobal(self.accent_btn.rect().topRight()))
+
+    def _custom_accent(self):
+        chosen = QColorDialog.getColor(QColor(theme.ACCENT), self, "Accent colour")
+        if chosen.isValid():
+            self.set_accent(chosen.name())
+
+    def set_accent(self, colour):
+        """Use a new accent colour straight away, and remember it."""
+        theme.set_accent(colour)
+        settings.save({"accent": theme.ACCENT})
+        theme.apply(QApplication.instance())
+        self._refresh_side_icons()
+        for page in self.pages.values():
+            page.update()
+
+    # ---------- window size ----------
+    def _fit_window(self):
+        """The smallest window in which every page fits without sideways scrolling or squeezing."""
+        central = self.centralWidget()
+        if central is None:
+            return  # still being built
+        central.layout().activate()
+        hint = central.minimumSizeHint()  # the largest page, the sidebar and the status bar
+        self.setMinimumSize(hint.width(), max(hint.height(), 560))
 
     def _status_bar(self):
         """What is running, how far along it is, and the button that opens the log."""
         bar = QFrame()
         bar.setObjectName("statusbar")
         h = QHBoxLayout(bar)
-        bar.setFixedHeight(30)
-        h.setContentsMargins(12, 0, 6, 0)
+        bar.setFixedHeight(36)
+        h.setContentsMargins(14, 0, 8, 0)
         h.setSpacing(12)
         self.status = ElidedLabel("Ready")
         h.addWidget(self.status, 1)
@@ -467,9 +556,9 @@ class App(QMainWindow):
         self.bar.setRange(0, 1000)
         self.bar.setValue(0)
         self.bar.setTextVisible(False)
-        self.bar.setFixedWidth(200)
+        self.bar.setFixedWidth(240)
         h.addWidget(self.bar)
-        self.log_toggle = button("Log", icon=icons.icon("log", theme.MUTED, 14))
+        self.log_toggle = button("Log", icon=icons.icon("log", theme.MUTED, 16))
         self.log_toggle.setCheckable(True)
         self.log_toggle.setToolTip("Show or hide the log of everything the tools have done")
         self.log_toggle.toggled.connect(lambda on: self._set_log_open(on))
@@ -480,8 +569,8 @@ class App(QMainWindow):
         self.log_panel = QFrame()
         self.log_panel.setObjectName("logpanel")
         v = QVBoxLayout(self.log_panel)
-        v.setContentsMargins(10, 6, 10, 6)
-        v.setSpacing(4)
+        v.setContentsMargins(12, 8, 12, 8)
+        v.setSpacing(6)
         head = QHBoxLayout()
         head.addWidget(label("Log", "heading"))
         head.addStretch(1)
@@ -515,7 +604,7 @@ class App(QMainWindow):
             btn.setProperty("active", "true" if active else "false")
             btn.style().unpolish(btn)
             btn.style().polish(btn)
-            btn.setIcon(icons.icon(icon_name, theme.ACCENT if active else theme.MUTED, 18))
+        self._refresh_side_icons()
 
     # ---------- thread-safe updates ----------
     # Background threads never touch the UI directly; they hand callables to the UI thread.
@@ -565,6 +654,7 @@ class App(QMainWindow):
 def main():
     app = QApplication(sys.argv)
     theme.load_fonts()
+    theme.set_accent(settings.load().get("accent", theme.DEFAULT_ACCENT))
     theme.apply(app)
     window = App()
     window.show()

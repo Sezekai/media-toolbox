@@ -84,7 +84,7 @@ def button(text, kind="secondary", icon=None):
     b.setCursor(Qt.CursorShape.PointingHandCursor)
     if icon is not None:
         b.setIcon(icon)
-        b.setIconSize(QSize(14, 14))
+        b.setIconSize(QSize(16, 16))
     return b
 
 
@@ -154,7 +154,7 @@ def tool_row():
     return row
 
 
-FIELD_LABEL_W = 76  # labels in front of fields share one width, so the fields line up
+FIELD_LABEL_W = 88  # labels in front of fields share one width, so the fields line up
 
 
 def field_label(text):
@@ -167,7 +167,7 @@ def add_folder(row, text, edit, title, on_change=None, stretch=1):
     """Label, path box and Browse button, added to a tool bar row."""
     if text:
         row.addWidget(field_label(text))
-    edit.setMinimumWidth(100)
+    edit.setMinimumWidth(120)
     row.addWidget(edit, stretch)
     browse = button("Browse")
 
@@ -184,7 +184,7 @@ def divider():
     """A thin upright line between groups in a tool bar row."""
     line = QFrame()
     line.setObjectName("divider")
-    line.setFixedSize(1, 16)
+    line.setFixedSize(1, 18)
     return line
 
 
@@ -222,7 +222,7 @@ class Page(QWidget):
         outer.setSpacing(theme.GAP)
         head = QHBoxLayout()
         head.setContentsMargins(2, 0, 0, 0)
-        head.setSpacing(10)
+        head.setSpacing(12)
         head.addWidget(label(self.title, "title"))
         head.addWidget(ElidedLabel(self.subtitle), 1)
         outer.addLayout(head)

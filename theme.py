@@ -1,7 +1,6 @@
-"""The one look of the app: a compact dark theme with a single blue accent.
+"""The look of the app: a compact dark theme with one accent colour the user can choose.
 
-Every size comes from the small scale below, so controls, rows and gaps line up on every page.
-There are no theme, font or size choices; the app always looks the same."""
+Every size comes from the small scale below, so controls, rows and gaps line up on every page."""
 import os
 import sys
 import tempfile
@@ -18,31 +17,58 @@ BORDER = "#2a2c31"      # one-pixel hairlines
 TEXT = "#e8eaed"
 MUTED = "#9aa0a8"       # secondary text, about 6.7:1 on PANEL
 FAINT = "#6c727b"       # placeholders and disabled text
-ACCENT = "#4a9eff"
+ACCENT = "#4a9eff"      # set by set_accent(); the colours below follow it
 ACCENT_HOVER = "#6fb1ff"
-ON_ACCENT = "#08111f"
+ON_ACCENT = "#ffffff"   # text and icons on accent buttons
 DANGER = "#e5484d"
 DANGER_HOVER = "#f06569"
-SELECT = "#1d3557"      # selected rows
-SELECT_SOFT = "#182436" # the active tool in the rail
+SELECT = "#1d3557"      # selected rows (the accent, darkened)
+SELECT_SOFT = "#182436" # the active tool in the sidebar
 TRACK = "#26282d"       # progress and slider tracks
 
 # Older names used around the app
 GREEN, ON_GREEN, CARD_BORDER = ACCENT, ON_ACCENT, BORDER
 
+DEFAULT_ACCENT = "#4a9eff"
+ACCENT_PRESETS = [  # (name, colour) offered in the accent menu; any other colour can be picked too
+    ("Blue", "#4a9eff"), ("Sky", "#38b6e8"), ("Teal", "#22b3a3"), ("Green", "#3fb950"),
+    ("Lime", "#8cc63f"), ("Amber", "#e0a526"), ("Orange", "#f07a2a"), ("Red", "#e5534b"),
+    ("Pink", "#e5539e"), ("Purple", "#9b6cf0"), ("Indigo", "#6872f0"), ("Slate", "#8b98a9"),
+]
+
+
+def _mix(a, b, t):
+    """Colour a moved t of the way towards colour b."""
+    ca, cb = QColor(a), QColor(b)
+    return QColor(round(ca.red() + (cb.red() - ca.red()) * t), round(ca.green() + (cb.green() - ca.green()) * t),
+                  round(ca.blue() + (cb.blue() - ca.blue()) * t)).name()
+
+
+def set_accent(colour):
+    """Use a new accent colour everywhere. Call apply(app) afterwards to restyle the open window."""
+    global ACCENT, ACCENT_HOVER, SELECT, SELECT_SOFT, GREEN
+    c = QColor(colour)
+    if not c.isValid():
+        c = QColor(DEFAULT_ACCENT)
+    ACCENT = c.name()
+    ACCENT_HOVER = _mix(ACCENT, "#ffffff", 0.18)
+    SELECT = _mix(ACCENT, PANEL, 0.68)
+    SELECT_SOFT = _mix(ACCENT, PANEL, 0.82)
+    GREEN = ACCENT
+
 # ----- type -----
-FAMILIES = ("Segoe UI Variable Text", "Segoe UI", "Inter")  # Windows' own UI face first
-FAMILY = "Segoe UI"
-MONO = "Cascadia Mono"
-TEXT_SIZES = {"caption": 11, "body": 12, "heading": 12, "title": 14}
+FAMILIES = ("Ubuntu", "Segoe UI", "Inter")  # Ubuntu (installed on the owner's PC), then fallbacks
+FAMILY = "Ubuntu"
+MONO = "Ubuntu Mono"
+TEXT_SIZES = {"caption": 12, "body": 13, "heading": 13, "title": 15}
 
 # ----- sizes (pixels) -----
-CONTROL_H = 24   # every button, text box, drop-down and spin box
-ROW_H = 20       # list rows
-GAP = 6          # between controls
-PAD = 8          # inside panels
-R_CONTROL = 4
-R_PANEL = 6
+CONTROL_H = 28   # every button, text box, drop-down and spin box
+ROW_H = 24       # list rows
+GAP = 8          # between controls
+PAD = 10         # inside panels
+R_CONTROL = 5
+R_PANEL = 7
 
 
 def px(n):
@@ -66,7 +92,7 @@ def font(role="body", bold=False):
 
 
 def load_fonts():
-    """Make the bundled fallback face available (used only where Segoe UI is missing)."""
+    """Make the bundled fallback face available (used only where Ubuntu and Segoe UI are missing)."""
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     for name in ("Inter-Regular.ttf", "Inter-Bold.ttf"):
         path = os.path.join(base, "fonts", name)
@@ -78,7 +104,8 @@ def _resolve_family():
     global FAMILY, MONO
     available = set(QFontDatabase.families())
     FAMILY = next((f for f in FAMILIES if f in available), "Segoe UI")
-    MONO = next((f for f in ("Cascadia Mono", "Consolas", "DejaVu Sans Mono") if f in available), "Consolas")
+    MONO = next((f for f in ("Ubuntu Mono", "Cascadia Mono", "Consolas", "DejaVu Sans Mono") if f in available),
+                "Consolas")
 
 
 def _palette():
@@ -142,42 +169,44 @@ def stylesheet():
     QFrame#logpanel {{ background: {PANEL}; border-top: 1px solid {BORDER}; }}
 
     QPushButton, QToolButton {{ background: {RAISED}; color: {TEXT}; border: 1px solid {BORDER};
-                   border-radius: {R_CONTROL}px; padding: 0px 10px; min-height: {ctrl}px; max-height: {ctrl}px; }}
+                   border-radius: {R_CONTROL}px; padding: 0px 12px; min-height: {ctrl}px; max-height: {ctrl}px; }}
     QPushButton:hover, QToolButton:hover {{ background: {RAISED_HOVER}; }}
     QPushButton:focus, QToolButton:focus {{ border: 1px solid {ACCENT}; }}
     QPushButton:disabled, QToolButton:disabled {{ color: {FAINT}; background: {PANEL}; }}
     QPushButton:checked {{ background: {SELECT}; border: 1px solid {SELECT}; }}
     QPushButton[kind="primary"] {{ background: {ACCENT}; color: {ON_ACCENT}; border: 1px solid {ACCENT};
-                                   font-weight: 600; }}
+                                   font-weight: normal; }}
     QPushButton[kind="primary"]:hover {{ background: {ACCENT_HOVER}; border: 1px solid {ACCENT_HOVER}; }}
     QPushButton[kind="primary"]:disabled {{ background: {RAISED}; color: {FAINT}; border: 1px solid {BORDER}; }}
     QPushButton[kind="danger"] {{ color: {DANGER}; }}
     QPushButton[kind="danger"]:hover {{ background: {DANGER}; color: #ffffff; border: 1px solid {DANGER}; }}
     QPushButton[kind="danger"]:disabled {{ color: {FAINT}; }}
     QToolButton::menu-indicator {{ image: url("{_chevron()}"); subcontrol-position: right center;
-                                  right: 6px; width: 9px; height: 9px; }}
-    QToolButton[popupMode="2"] {{ padding-right: 20px; }}
+                                  right: 8px; width: 10px; height: 10px; }}
+    QToolButton[popupMode="2"] {{ padding-right: 24px; }}
 
     QPushButton[rail="true"] {{ background: transparent; border: none; border-radius: {R_CONTROL + 1}px;
-                               padding: 0px; min-height: 32px; max-height: 32px; }}
-    QPushButton[rail="true"]:hover {{ background: {RAISED}; }}
-    QPushButton[rail="true"][active="true"] {{ background: {SELECT_SOFT}; }}
+                               color: {MUTED}; text-align: left; padding: 0px 0px 0px 7px;
+                               min-height: 32px; max-height: 32px; }}
+    QPushButton[rail="true"]:hover {{ background: {RAISED}; color: {TEXT}; }}
+    QPushButton[rail="true"][active="true"] {{ background: {SELECT_SOFT}; color: {TEXT}; }}
+    QLabel#brand {{ font-weight: 600; }}
 
     QLineEdit, QComboBox, QSpinBox {{ background: {FIELD}; color: {TEXT}; border: 1px solid {BORDER};
-                   border-radius: {R_CONTROL}px; padding: 0px 6px; min-height: {ctrl}px; max-height: {ctrl}px;
+                   border-radius: {R_CONTROL}px; padding: 0px 8px; min-height: {ctrl}px; max-height: {ctrl}px;
                    selection-background-color: {SELECT}; }}
     QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{ border: 1px solid {ACCENT}; }}
     QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled {{ color: {FAINT}; }}
-    QComboBox {{ padding-right: 20px; }}
-    QComboBox::drop-down {{ border: none; width: 20px; }}
+    QComboBox {{ padding-right: 24px; }}
+    QComboBox::drop-down {{ border: none; width: 24px; }}
     QComboBox::down-arrow {{ image: url("{_chevron()}"); width: 10px; height: 10px; }}
     QComboBox QAbstractItemView {{ background: {RAISED}; color: {TEXT}; border: 1px solid {BORDER};
                                   selection-background-color: {SELECT}; padding: 4px; }}
     QSpinBox::up-button, QSpinBox::down-button {{ width: 0px; border: none; }}
 
-    QCheckBox {{ spacing: 6px; background: transparent; }}
+    QCheckBox {{ spacing: 8px; background: transparent; }}
     QCheckBox::indicator, QTreeWidget::indicator, QListWidget::indicator {{
-        width: 12px; height: 12px; border-radius: 3px; border: 1px solid {FAINT}; background: {FIELD}; }}
+        width: 14px; height: 14px; border-radius: 3px; border: 1px solid {FAINT}; background: {FIELD}; }}
     QCheckBox::indicator:hover {{ border: 1px solid {MUTED}; }}
     QCheckBox::indicator:checked, QTreeWidget::indicator:checked {{ background: {ACCENT}; border: 1px solid {ACCENT};
                                    image: url("{_check()}"); }}
@@ -197,7 +226,7 @@ def stylesheet():
     QHeaderView::down-arrow, QHeaderView::up-arrow {{ width: 0px; height: 0px; }}
 
     QPlainTextEdit#log {{ background: {FIELD}; color: {MUTED}; border: 1px solid {BORDER};
-                         border-radius: {R_CONTROL}px; padding: 4px; font-family: "{MONO}";
+                         border-radius: {R_CONTROL}px; padding: 6px; font-family: "{MONO}";
                          font-size: {text_px('caption')}px; selection-background-color: {SELECT}; }}
 
     QProgressBar {{ background: {TRACK}; border: none; border-radius: 2px; min-height: 4px; max-height: 4px; }}
@@ -220,7 +249,7 @@ def stylesheet():
     QSplitter::handle:hover {{ background: {BORDER}; }}
 
     QMenu {{ background: {RAISED}; border: 1px solid {BORDER}; padding: 4px; }}
-    QMenu::item {{ padding: 4px 14px; border-radius: 3px; }}
+    QMenu::item {{ padding: 5px 16px; border-radius: 4px; }}
     QMenu::item:selected {{ background: {SELECT}; }}
     QMenu::item:disabled {{ color: {FAINT}; }}
     QMenu::separator {{ height: 1px; background: {BORDER}; margin: 4px 6px; }}

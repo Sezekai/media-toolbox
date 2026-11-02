@@ -21,10 +21,10 @@ import theme
 from widgets import (ElidedLabel, FlowLayout, Page, add_folder, button, empty_state, field_label, label, line_edit, muted,
                      remember, results_panel, tool_row, toolbar)
 
-LEFT_W = 244          # the options column (including room for its scroll bar)
-MIDDLE_MIN_W = 334    # the groups list
-COMPARE_MIN_W = 230   # the comparison
-CARD_W = 210          # a copy card at 100% size
+LEFT_W = 290          # the options column (including room for its scroll bar)
+MIDDLE_MIN_W = 372    # the groups list
+COMPARE_MIN_W = 262   # the comparison
+CARD_W = 250          # a copy card at 100% size
 
 ROW_PATH = Qt.UserRole
 ROW_GROUP = Qt.UserRole + 1
@@ -145,7 +145,7 @@ class CopyCard(QFrame):
         if max_width:
             width = max(120, min(width, max_width))  # never wider than the comparison area
             zoom = width / CARD_W
-        pad = max(5, int(8 * zoom))
+        pad = max(6, int(10 * zoom))
         self.setFixedWidth(width)
         inner = width - 2 * pad - 2
         height = int(inner * 9 / 16)
@@ -198,7 +198,7 @@ class DuplicatesPage(Page):
         self.mode.addItem("Check videos against a library", "library")
         self.mode.setCurrentIndex(0 if opts.get("mode", "folder") == "folder" else 1)
         self.mode.currentIndexChanged.connect(self._show_mode)
-        self.mode.setFixedWidth(210)
+        self.mode.setFixedWidth(250)
 
         self.folder = line_edit(saved.get("dup_last_folder", ""), placeholder="Choose the folder to search")
         self.recursive = QCheckBox("Include subfolders")
@@ -250,7 +250,7 @@ class DuplicatesPage(Page):
         self.percent.setValue(int(opts.get("percent", 95)))
         self.percent.setToolTip(EXPLAIN_EXACT)
         self.percent_label = label("", "muted")
-        self.percent_label.setFixedWidth(32)
+        self.percent_label.setFixedWidth(36)
         self.percent_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.percent.valueChanged.connect(lambda v: self.percent_label.setText(f"{v}%"))
         self.percent_label.setText(f"{self.percent.value()}%")
@@ -317,7 +317,7 @@ class DuplicatesPage(Page):
         remove.clicked.connect(self._remove_files)
         files_head.addWidget(remove)
         fv.addLayout(files_head)
-        self.files.setMinimumHeight(80)
+        self.files.setMinimumHeight(96)
         fv.addWidget(self.files, 1)
 
         left_host = QWidget()
@@ -423,10 +423,10 @@ class DuplicatesPage(Page):
         self.zoom_slider.setRange(int(ZOOM_MIN * 100), int(ZOOM_MAX * 100))
         self.zoom_slider.setValue(round(self.zoom * 100))
         self.zoom_slider.valueChanged.connect(lambda v: self._set_zoom(v / 100))
-        self.zoom_slider.setFixedWidth(80)
+        self.zoom_slider.setFixedWidth(90)
         self.zoom_slider.setToolTip("Card size (Ctrl + mouse wheel over the cards also works)")
         self.zoom_label = label("", "muted")
-        self.zoom_label.setFixedWidth(36)
+        self.zoom_label.setFixedWidth(40)
         self.zoom_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         compare, cv = results_panel()
         compare.setMinimumWidth(COMPARE_MIN_W)
@@ -482,10 +482,10 @@ class DuplicatesPage(Page):
         """An option that belongs to the tick box above it: indented, label left, value right."""
         row = QWidget()
         h = QHBoxLayout(row)
-        h.setContentsMargins(19, 0, 0, 0)
+        h.setContentsMargins(22, 0, 0, 0)
         h.setSpacing(theme.GAP)
         h.addWidget(muted(text), 1)
-        spin.setFixedWidth(54)
+        spin.setFixedWidth(64)
         h.addWidget(spin)
         return row
 
