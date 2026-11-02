@@ -38,14 +38,17 @@ Compact. Table rows 26–28 px. Control height at least 30 px. Gutters 14–16 p
 
 ## Signature
 
-The status line under the page: the running job's name, a progress bar in accent, and the log. It is the only persistent element that moves, so the owner always knows whether something is running.
+The status bar along the bottom: what is running, a progress bar in the accent, and a Log button. The log is a drawer above the status bar; it stays closed until you open it, and opens by itself when a job reports an error, so a failure is never missed.
 
-## Layout rules
+## Layout rules (version 2, toolbar and full results)
 
-- Sidebar: tools with icons and labels; the active tool has a neutral lift and bold text. No section kicker above the tool list.
-- Each tool page: title, one-sentence purpose, then the setup card, then the action row, then the results.
-- The results list fills the remaining height. Columns stay resizable and remembered.
-- Ctrl + wheel zooms the comparison area. Setup columns scroll with the wheel.
+- Icon rail (64 px) on the left: one icon per tool, the name in a tooltip, the active tool tinted with the accent. Appearance sits at the bottom of the rail, apart from the tools.
+- Each tool page: title and one-line purpose, then a tool bar, then the results panel, which takes all the remaining height.
+- Tool bar: the first row holds the folder and the main action (Scan, Load, Zip, Copy, Convert all) at the right end; the second row holds the options. One primary button per bar.
+- Results panel: a summary on the left and the list's own actions on the right, above the list.
+- Duplicate videos keeps three resizable columns (options, groups, compare) under its tool bar; it needs about 1050 px of window width before it scrolls sideways.
+- Lists keep resizable, remembered columns. Ctrl + wheel zooms the comparison area. The options column scrolls with the wheel.
+- When the redesign first runs, the saved theme switches once to Graphite. Appearance can switch it back.
 
 ## Honest risk
 

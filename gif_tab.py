@@ -11,7 +11,8 @@ import gif_maker
 import icons
 import theme
 from media_utils import find_videos, probe_duration
-from widgets import Page, button, card, folder_row, label, line_edit, make_tree, muted, remember
+from widgets import (Page, add_folder, button, card, divider, label, line_edit, make_tree, muted, remember,
+                     results_bar, results_panel, tool_row, toolbar)
 
 MIN_CLIP = 0.1  # shortest allowed timeframe, in seconds
 ITEM_PATH = Qt.UserRole
@@ -202,70 +203,68 @@ class GifTab(Page):
         self._preview_timer.setInterval(250)
         self._preview_timer.timeout.connect(self._request_previews)
 
+        # Top bar: the folder and how to load it, then the GIF settings and where the GIFs are saved
+        self.quality.setToolTip("Higher quality = better colours, bigger file, slower")
+        bar, rows = toolbar()
+        top = tool_row()
+        add_folder(top, "Video folder", self.folder, "Choose the video folder")
+        top.addWidget(self.recursive)
+        load_btn = button("Load videos", "primary", icons.icon("gif", theme.ON_GREEN, 18))
+        load_btn.clicked.connect(self.load_videos)
+        top.addWidget(divider())
+        top.addWidget(load_btn)
+        rows.addLayout(top)
+        opts = tool_row()
+        opts.addWidget(muted("FPS"))
+        opts.addWidget(self.fps)
+        opts.addSpacing(theme.px(6))
+        opts.addWidget(muted("Width (px)"))
+        opts.addWidget(self.width_px)
+        opts.addSpacing(theme.px(6))
+        opts.addWidget(muted("Quality"))
+        opts.addWidget(self.quality)
+        opts.addWidget(divider())
+        add_folder(opts, "Save GIFs to", self.out_dir, "Save GIFs to...")
+        rows.addLayout(opts)
+        self.body.addWidget(bar)
+
         split = QSplitter(Qt.Horizontal)
         split.setChildrenCollapsible(False)
+        split.setHandleWidth(theme.px(10))
         left = QWidget()
-        left.setMinimumWidth(theme.px(440))
+        left.setMinimumWidth(theme.px(380))
         left_col = QVBoxLayout(left)
-        left_col.setContentsMargins(0, 0, theme.px(8), 0)
+        left_col.setContentsMargins(0, 0, 0, 0)
         left_col.setSpacing(theme.px(12))
         right = QWidget()
-        right.setMinimumWidth(theme.px(420))
+        right.setMinimumWidth(theme.px(380))
         right_col = QVBoxLayout(right)
-        right_col.setContentsMargins(theme.px(8), 0, 0, 0)
+        right_col.setContentsMargins(0, 0, 0, 0)
         split.addWidget(left)
         split.addWidget(right)
         split.setStretchFactor(0, 1)
         split.setStretchFactor(1, 1)
-        remember("gif_split", split)  # the panels share the width evenly unless you have dragged them
+        remember("gif_split2", split)  # the panels share the width evenly unless you have dragged them
         self.body.addWidget(split, 1)
 
-        # Left: settings, actions, then the video list (which takes the remaining height)
-        setup = card()
-        grid = QGridLayout(setup)
-        grid.setContentsMargins(theme.px(16), theme.px(14), theme.px(16), theme.px(14))
-        grid.setHorizontalSpacing(theme.px(10))
-        grid.setVerticalSpacing(theme.px(10))
-        grid.setColumnStretch(1, 1)
-        folder_row(grid, 0, "Video folder", self.folder, "Choose the video folder")
-        load_row = QHBoxLayout()
-        load_row.addWidget(self.recursive)
-        load_row.addSpacing(theme.px(16))
-        load_btn = button("Load videos", "primary", icons.icon("gif", theme.ON_GREEN, 18))
-        load_btn.clicked.connect(self.load_videos)
-        load_row.addWidget(load_btn)
-        load_row.addStretch(1)
-        grid.addLayout(load_row, 1, 0, 1, 3)
-        grid.addWidget(muted("FPS"), 2, 0)
-        grid.addWidget(self.fps, 2, 1, Qt.AlignLeft)
-        grid.addWidget(muted("Width (px)"), 3, 0)
-        grid.addWidget(self.width_px, 3, 1, Qt.AlignLeft)
-        grid.addWidget(muted("Quality"), 4, 0)
-        grid.addWidget(self.quality, 4, 1, Qt.AlignLeft)
-        folder_row(grid, 5, "Save GIFs to", self.out_dir, "Save GIFs to...")
-        grid.addWidget(label("Higher quality = better colours, bigger file, slower", "caption", wrap=True), 6, 0, 1, 3)
-        left_col.addWidget(setup)
-
-        actions = QGridLayout()
-        actions.setHorizontalSpacing(theme.px(8))
-        actions.setVerticalSpacing(theme.px(8))
-        actions.addWidget(self._button("Select all", self.select_all), 0, 0)
-        actions.addWidget(self._button("Clear timeframes", self.clear_selected_ranges), 0, 1)
-        actions.addWidget(self._button("Convert selected", lambda: self.convert(True), "primary",
-                                       icons.icon("gif", theme.ON_GREEN, 18)), 1, 0)
-        actions.addWidget(self._button("Convert all", lambda: self.convert(False), "primary"), 1, 1)
-        left_col.addLayout(actions)
-
-        list_card = card()
-        list_layout = QVBoxLayout(list_card)
-        list_layout.setContentsMargins(theme.px(8), theme.px(8), theme.px(8), theme.px(8))
+        # Left: the video list with its actions above it
+        panel, pv = results_panel()
+        hint = muted("Click a video to set its clip.")
+        pv.addLayout(results_bar(hint, self._button("Select all", self.select_all),
+                                 self._button("Clear timeframes", self.clear_selected_ranges)))
         self.tree = make_tree(("File", "Length", "Timeframe"), (200, 80, 130))
         self.tree.setSortingEnabled(True)  # click a heading to sort by it, click again to reverse
         self.tree.sortByColumn(0, Qt.AscendingOrder)
         remember("gif_tree", self.tree, header=True)
         self.tree.currentItemChanged.connect(self._on_current)
-        list_layout.addWidget(self.tree)
-        left_col.addWidget(list_card, 1)
+        pv.addWidget(self.tree, 1)
+        convert = tool_row()
+        convert.addStretch(1)
+        convert.addWidget(self._button("Convert all", lambda: self.convert(False)))
+        convert.addWidget(self._button("Convert selected", lambda: self.convert(True), "primary",
+                                       icons.icon("gif", theme.ON_GREEN, 18)))
+        pv.addLayout(convert)
+        left_col.addWidget(panel, 1)
 
         # Right: the timeframe editor, whose previews take the remaining height
         editor = card()

@@ -100,6 +100,65 @@ def folder_row(grid, row, text, edit, title, on_change=None):
     return browse
 
 
+def toolbar():
+    """The bar across the top of a tool: folders, options and the Run button. Returns (frame, rows layout)."""
+    frame = QFrame()
+    frame.setObjectName("toolbar")
+    rows = QVBoxLayout(frame)
+    rows.setContentsMargins(theme.px(12), theme.px(10), theme.px(12), theme.px(10))
+    rows.setSpacing(theme.px(8))
+    return frame, rows
+
+
+def tool_row():
+    row = QHBoxLayout()
+    row.setSpacing(theme.px(8))
+    return row
+
+
+def add_folder(row, text, edit, title, on_change=None, stretch=1):
+    """Label, path box and Browse button, added to a tool bar row."""
+    if text:
+        row.addWidget(muted(text))
+    row.addWidget(edit, stretch)
+    browse = button("Browse")
+
+    def go():
+        if pick_folder(edit, title) and on_change:
+            on_change()
+
+    browse.clicked.connect(go)
+    row.addWidget(browse)
+    return browse
+
+
+def divider():
+    """A thin upright line between groups in a tool bar row."""
+    line = QFrame()
+    line.setObjectName("divider")
+    line.setFixedWidth(1)
+    return line
+
+
+def results_bar(summary, *buttons):
+    """The line above a results list: a summary on the left, the list's actions on the right."""
+    row = QHBoxLayout()
+    row.setSpacing(theme.px(8))
+    row.addWidget(summary, 1)
+    for b in buttons:
+        row.addWidget(b)
+    return row
+
+
+def results_panel():
+    """The card that holds a results list and fills the rest of the page. Returns (frame, layout)."""
+    frame = card()
+    v = QVBoxLayout(frame)
+    v.setContentsMargins(theme.px(12), theme.px(10), theme.px(12), theme.px(12))
+    v.setSpacing(theme.px(8))
+    return frame, v
+
+
 class Page(QWidget):
     """A tool page: a title and subtitle, then the page content in a scroll area.
     The content fills the window; it only scrolls when the window is smaller than the content needs."""
@@ -113,8 +172,9 @@ class Page(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
         outer.addWidget(label(self.title, "title"))
+        outer.addSpacing(theme.px(2))
         outer.addWidget(muted(self.subtitle, wrap=True))
-        outer.addSpacing(theme.px(16))
+        outer.addSpacing(theme.px(12))
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)

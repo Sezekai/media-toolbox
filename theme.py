@@ -19,7 +19,7 @@ RADIUS = 1.0        # corners
 CURRENT_THEME = DEFAULT_THEME
 
 # Every text size is one fixed base multiplied by SIZE, so the sizes always keep their proportions.
-TEXT_BASE = {"caption": 12, "body": 14, "heading": 16, "title": 24, "sample": 20}
+TEXT_BASE = {"caption": 12, "body": 14, "heading": 16, "title": 21, "sample": 20}
 TEXT_FLOOR = 8      # px, the smallest text ever drawn
 
 
@@ -148,6 +148,11 @@ def stylesheet():
     QLabel[role="caption"] {{ color: {g['MUTED']}; font-size: {text_px('caption')}px; }}
     QLabel[role="section"] {{ color: {g['MUTED']}; font-size: {text_px('caption')}px; font-weight: bold; }}
     QFrame#sidebar {{ background: {g['SIDEBAR']}; }}
+    QFrame#rail {{ background: {g['SIDEBAR']}; border-right: 1px solid {g['CARD_BORDER']}; }}
+    QFrame#toolbar {{ background: {g['CARD']}; border: 1px solid {g['CARD_BORDER']}; border-radius: {r_card}px; }}
+    QFrame#divider {{ background: {g['CARD_BORDER']}; border: none; }}
+    QFrame#statusbar {{ background: {g['SIDEBAR']}; border-top: 1px solid {g['CARD_BORDER']}; }}
+    QFrame#logpanel {{ background: {g['SIDEBAR']}; border-top: 1px solid {g['CARD_BORDER']}; }}
     QFrame#card {{ background: {g['CARD']}; border: 1px solid {g['CARD_BORDER']}; border-radius: {r_card}px; }}
     QFrame#preview {{ background: {g['FIELD']}; border-radius: {radius(10)}px; }}
     QPushButton {{ background: {g['SECONDARY']}; color: {g['TEXT']}; border: 1px solid transparent; border-radius: {r_ctrl}px;
@@ -163,6 +168,10 @@ def stylesheet():
     QPushButton[nav="true"] {{ background: transparent; color: {g['MUTED']}; text-align: left;
                               padding: {px(11)}px {px(14)}px; border-radius: {r_ctrl}px; }}
     QPushButton[nav="true"]:hover {{ background: {g['NAV_HOVER']}; }}
+    QPushButton[rail="true"] {{ background: transparent; border: none; border-radius: {r_ctrl}px; padding: 0px; }}
+    QPushButton[rail="true"]:hover {{ background: {g['NAV_HOVER']}; }}
+    QPushButton[rail="true"][active="true"] {{ background: {g['NAV_ACTIVE']}; }}
+    QPushButton:checked {{ background: {g['NAV_ACTIVE']}; }}
     QPushButton[nav="true"][active="true"] {{ background: {g['NAV_ACTIVE']}; color: {g['TEXT']}; font-weight: bold; }}
     QLineEdit, QComboBox, QSpinBox {{ background: {g['FIELD']}; color: {g['TEXT']}; border: 1px solid {g['CARD_BORDER']};
                            border-radius: {r_field}px; padding: {pad_v}px {pad_h}px; min-height: 1em;

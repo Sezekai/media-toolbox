@@ -7,7 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
-                               QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QSplitter,
+                               QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSplitter,
                                QStackedWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 import folder_tools
@@ -19,8 +19,8 @@ import webp_convert
 from duplicates_tab import DuplicatesPage
 from gif_tab import GifTab
 from themes import CORNER_STYLES, DEFAULT_THEME, FONT_CHOICES, PALETTES, SIZE_CHOICES
-from widgets import (Bridge, FolderChecklist, Page, button, card, folder_row, label, line_edit, make_tree, muted,
-                     remember, reset_remembered)
+from widgets import (Bridge, FolderChecklist, Page, add_folder, button, card, divider, label, line_edit, make_tree,
+                     muted, remember, reset_remembered, results_bar, results_panel, tool_row, toolbar)
 
 ITEM_PATH = Qt.UserRole
 
@@ -47,49 +47,39 @@ class SilentPage(Page):
         self.recursive = QCheckBox("Include subfolders")
         self.recursive.setChecked(True)
         self.loud = QCheckBox("Also check audio level (slower)")
-        self.threshold = line_edit("-60", width=90)
+        self.threshold = line_edit("-60", width=70)
+        self.threshold.setToolTip("When the audio level is checked, videos quieter than this count as silent")
 
-        setup = card()
-        grid = QGridLayout(setup)
-        grid.setContentsMargins(theme.px(16), theme.px(14), theme.px(16), theme.px(14))
-        grid.setHorizontalSpacing(theme.px(10))
-        grid.setVerticalSpacing(theme.px(10))
-        grid.setColumnStretch(1, 1)
-        folder_row(grid, 0, "Video folder", self.folder, "Choose the video folder")
-        options = QHBoxLayout()
-        options.addWidget(self.recursive)
-        options.addSpacing(theme.px(20))
-        options.addWidget(self.loud)
-        options.addSpacing(theme.px(20))
-        options.addWidget(muted("Threshold (dB)"))
-        options.addWidget(self.threshold)
-        options.addStretch(1)
-        grid.addLayout(options, 1, 0, 1, 3)
-        self.body.addWidget(setup)
-
-        actions = QHBoxLayout()
-        actions.setSpacing(theme.px(8))
+        bar, rows = toolbar()
+        top = tool_row()
+        add_folder(top, "Video folder", self.folder, "Choose the video folder")
         scan = button("Scan", "primary", icons.icon("search", theme.ON_GREEN, 18))
         scan.clicked.connect(self.scan)
+        top.addWidget(divider())
+        top.addWidget(scan)
+        rows.addLayout(top)
+        opts = tool_row()
+        opts.addWidget(self.recursive)
+        opts.addSpacing(theme.px(12))
+        opts.addWidget(self.loud)
+        opts.addSpacing(theme.px(4))
+        opts.addWidget(muted("Threshold (dB)"))
+        opts.addWidget(self.threshold)
+        opts.addStretch(1)
+        rows.addLayout(opts)
+        self.body.addWidget(bar)
+
+        panel, pv = results_panel()
+        self.summary = muted("Choose a folder and click Scan.")
         select = button("Select all")
         select.clicked.connect(lambda: self.tree.selectAll())
         move = button("Move selected", "primary", icons.icon("move", theme.ON_GREEN, 18))
         move.clicked.connect(self.move_selected)
-        actions.addWidget(scan)
-        actions.addWidget(select)
-        actions.addWidget(move)
-        self.summary = muted("")
-        actions.addSpacing(theme.px(10))
-        actions.addWidget(self.summary, 1)
-        self.body.addLayout(actions)
-
-        list_card = card()
-        layout = QVBoxLayout(list_card)
-        layout.setContentsMargins(theme.px(8), theme.px(8), theme.px(8), theme.px(8))
+        pv.addLayout(results_bar(self.summary, select, move))
         self.tree = make_tree(("File", "Reason"), (560, 260))
         remember("silent_tree", self.tree, header=True)
-        layout.addWidget(self.tree)
-        self.body.addWidget(list_card, 1)
+        pv.addWidget(self.tree, 1)
+        self.body.addWidget(panel, 1)
 
     def scan(self):
         folder = self.folder.text().strip()
@@ -147,28 +137,25 @@ class ZipPage(Page):
     def build(self):
         self.source = line_edit(placeholder="Choose a parent folder")
         self.dest = line_edit(placeholder="Empty = save the zips beside the folders")
-        setup = card()
-        grid = QGridLayout(setup)
-        grid.setContentsMargins(theme.px(16), theme.px(14), theme.px(16), theme.px(14))
-        grid.setHorizontalSpacing(theme.px(10))
-        grid.setVerticalSpacing(theme.px(10))
-        grid.setColumnStretch(1, 1)
-        folder_row(grid, 0, "Parent folder", self.source, "Choose the parent folder", on_change=self.refresh)
+        bar, rows = toolbar()
+        top = tool_row()
+        add_folder(top, "Parent folder", self.source, "Choose the parent folder", on_change=self.refresh)
         self.source.editingFinished.connect(self.refresh)
-        folder_row(grid, 1, "Save zips to", self.dest, "Choose where to save the zips")
-        self.body.addWidget(setup)
-
-        list_card = card()
-        lv = QVBoxLayout(list_card)
-        lv.setContentsMargins(theme.px(16), theme.px(14), theme.px(16), theme.px(14))
-        self.checklist = FolderChecklist("Folders in this folder", recursive=False, key="zip_folders")
-        self.checklist.clear("Choose a parent folder to see its folders.")
-        lv.addWidget(self.checklist)
-        self.body.addWidget(list_card, 1)
-
         run = button("Zip ticked folders", "primary", icons.icon("zip", theme.ON_GREEN, 18))
         run.clicked.connect(self.run)
-        self.body.addWidget(run, 0, Qt.AlignLeft)
+        top.addWidget(divider())
+        top.addWidget(run)
+        rows.addLayout(top)
+        second = tool_row()
+        add_folder(second, "Save zips to", self.dest, "Choose where to save the zips")
+        rows.addLayout(second)
+        self.body.addWidget(bar)
+
+        panel, pv = results_panel()
+        self.checklist = FolderChecklist("Folders in this folder", recursive=False, key="zip_folders")
+        self.checklist.clear("Choose a parent folder to see its folders.")
+        pv.addWidget(self.checklist, 1)
+        self.body.addWidget(panel, 1)
 
     def refresh(self):
         path = self.source.text().strip()
@@ -210,72 +197,55 @@ class WebpPage(Page):
         self.folder = line_edit(placeholder="Choose a folder")
         self.recursive = QCheckBox("Include subfolders")
         self.recursive.toggled.connect(lambda _c: self.scan())
-        self.delete_originals = QCheckBox("Send originals to the Recycle Bin after converting")
+        self.delete_originals = QCheckBox("Recycle originals after converting")
+        self.delete_originals.setToolTip("Send the original .webp files to the Recycle Bin once each JPG is saved")
         self.quality = QComboBox()
         self.quality.addItems([f"{q}%" for q in self.QUALITY_STEPS])
         self.quality.setCurrentText("95%")
         self.quality.currentTextChanged.connect(self._quality_changed)
+        self.quality.setToolTip("Higher = bigger file, better detail")
         self.rows = []  # (Path, folder shown in the list, size in bytes)
 
-        setup = card()
-        grid = QGridLayout(setup)
-        grid.setContentsMargins(theme.px(16), theme.px(14), theme.px(16), theme.px(14))
-        grid.setHorizontalSpacing(theme.px(10))
-        grid.setVerticalSpacing(theme.px(10))
-        grid.setColumnStretch(1, 1)
-        folder_row(grid, 0, "Folder", self.folder, "Choose the folder", on_change=self.scan)
-        options = QHBoxLayout()
-        options.addWidget(self.recursive)
-        options.addSpacing(theme.px(20))
-        options.addWidget(self.delete_originals)
-        options.addStretch(1)
-        grid.addLayout(options, 1, 0, 1, 3)
-        self.body.addWidget(setup)
-
-        quality = card()
-        q = QVBoxLayout(quality)
-        q.setContentsMargins(theme.px(16), theme.px(14), theme.px(16), theme.px(14))
-        row = QHBoxLayout()
-        row.addWidget(label("JPG quality", "heading"))
-        row.addSpacing(theme.px(12))
-        row.addWidget(self.quality)
-        row.addSpacing(theme.px(12))
-        row.addWidget(muted("Higher = bigger file, better detail"))
-        row.addStretch(1)
-        q.addLayout(row)
-        self.quality_info = muted(self.QUALITY_INFO[95], wrap=True)
-        q.addWidget(self.quality_info)
-        q.addWidget(label("JPG can't store transparency, so transparent areas become white. "
-                          "Animated WebP files convert only their first frame. Metadata is not kept.",
-                          "caption", wrap=True))
-        self.body.addWidget(quality)
-
-        list_card = card()
-        layout = QVBoxLayout(list_card)
-        layout.setContentsMargins(theme.px(8), theme.px(8), theme.px(8), theme.px(8))
-        self.tree = make_tree(("File", "Folder", "Size"), (300, 420, 110))
-        remember("webp_tree", self.tree, header=True)
-        layout.addWidget(self.tree)
-        self.body.addWidget(list_card, 1)
-
-        actions = QHBoxLayout()
-        actions.setSpacing(theme.px(8))
+        bar, rows = toolbar()
+        top = tool_row()
+        add_folder(top, "Folder", self.folder, "Choose the folder", on_change=self.scan)
         scan = button("Scan folder")
         scan.clicked.connect(self.scan)
+        top.addWidget(scan)
         convert_all = button("Convert all listed", "primary", icons.icon("image", theme.ON_GREEN, 18))
         convert_all.clicked.connect(lambda: self.convert(False))
-        convert_sel = button("Convert selected", "primary")
-        convert_sel.clicked.connect(lambda: self.convert(True))
-        actions.addWidget(scan)
-        actions.addWidget(convert_all)
-        actions.addWidget(convert_sel)
+        top.addWidget(divider())
+        top.addWidget(convert_all)
+        rows.addLayout(top)
+        opts = tool_row()
+        opts.addWidget(muted("JPG quality"))
+        opts.addWidget(self.quality)
+        opts.addSpacing(theme.px(12))
+        opts.addWidget(self.recursive)
+        opts.addSpacing(theme.px(12))
+        opts.addWidget(self.delete_originals)
+        opts.addStretch(1)
+        rows.addLayout(opts)
+        self.quality_info = label(self.QUALITY_INFO[95] + "  JPG can't store transparency (it becomes white), "
+                                  "animated WebP keeps only its first frame, and metadata is not kept.",
+                                  "caption", wrap=True)
+        rows.addWidget(self.quality_info)
+        self.body.addWidget(bar)
+
+        panel, pv = results_panel()
         self.summary = muted("Choose a folder to see its WebP files.")
-        actions.addSpacing(theme.px(10))
-        actions.addWidget(self.summary, 1)
-        self.body.addLayout(actions)
+        convert_sel = button("Convert selected")
+        convert_sel.clicked.connect(lambda: self.convert(True))
+        pv.addLayout(results_bar(self.summary, convert_sel))
+        self.tree = make_tree(("File", "Folder", "Size"), (300, 420, 110))
+        remember("webp_tree", self.tree, header=True)
+        pv.addWidget(self.tree, 1)
+        self.body.addWidget(panel, 1)
 
     def _quality_changed(self, choice):
-        self.quality_info.setText(self.QUALITY_INFO[int(choice.rstrip("%"))])
+        self.quality_info.setText(self.QUALITY_INFO[int(choice.rstrip("%"))] + "  JPG can't store transparency "
+                                  "(it becomes white), animated WebP keeps only its first frame, and metadata "
+                                  "is not kept.")
 
     def scan(self):
         folder = self.folder.text().strip()
@@ -344,28 +314,25 @@ class CopyPage(Page):
     def build(self):
         self.source = line_edit(placeholder="Choose the folder to copy")
         self.dest = line_edit(placeholder="Choose the destination")
-        setup = card()
-        grid = QGridLayout(setup)
-        grid.setContentsMargins(theme.px(16), theme.px(14), theme.px(16), theme.px(14))
-        grid.setHorizontalSpacing(theme.px(10))
-        grid.setVerticalSpacing(theme.px(10))
-        grid.setColumnStretch(1, 1)
-        folder_row(grid, 0, "Folder to copy", self.source, "Choose the folder to copy", on_change=self.refresh)
+        bar, rows = toolbar()
+        top = tool_row()
+        add_folder(top, "Folder to copy", self.source, "Choose the folder to copy", on_change=self.refresh)
         self.source.editingFinished.connect(self.refresh)
-        folder_row(grid, 1, "Copy into", self.dest, "Choose the destination")
-        self.body.addWidget(setup)
-
-        list_card = card()
-        lv = QVBoxLayout(list_card)
-        lv.setContentsMargins(theme.px(16), theme.px(14), theme.px(16), theme.px(14))
-        self.checklist = FolderChecklist("Folders to copy", recursive=True, key="copy_folders")
-        self.checklist.clear("Choose a folder to see its sub-folders.")
-        lv.addWidget(self.checklist)
-        self.body.addWidget(list_card, 1)
-
         run = button("Copy folder structure", "primary", icons.icon("copy_folder", theme.ON_GREEN, 18))
         run.clicked.connect(self.run)
-        self.body.addWidget(run, 0, Qt.AlignLeft)
+        top.addWidget(divider())
+        top.addWidget(run)
+        rows.addLayout(top)
+        second = tool_row()
+        add_folder(second, "Copy into", self.dest, "Choose the destination")
+        rows.addLayout(second)
+        self.body.addWidget(bar)
+
+        panel, pv = results_panel()
+        self.checklist = FolderChecklist("Folders to copy", recursive=True, key="copy_folders")
+        self.checklist.clear("Choose a folder to see its sub-folders.")
+        pv.addWidget(self.checklist, 1)
+        self.body.addWidget(panel, 1)
 
     def refresh(self):
         path = self.source.text().strip()
@@ -479,7 +446,7 @@ class AppearancePage(Page):
             strip.addWidget(block)
         strip.addStretch(1)
         v.addLayout(strip)
-        name_label = QLabel(("✓ " if selected else "") + name)
+        name_label = QLabel(name + ("  (in use)" if selected else ""))
         name_label.setStyleSheet(f"color: {p['TEXT']}; font-weight: bold; background: transparent; border: none;")
         v.addWidget(name_label)
         tile.clicked.connect(lambda n=name: self.app.change_appearance(theme=n))
@@ -523,95 +490,128 @@ class App(QMainWindow):
 
     # ---------- layout ----------
     def _build(self):
+        """Icon rail on the left; the tool fills the rest; a status bar along the bottom with the log above it."""
         reset_remembered()
         root = QWidget()
         root.setObjectName("root")
         h = QHBoxLayout(root)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(0)
-        h.addWidget(self._sidebar())
+        h.addWidget(self._rail())
 
         self.stack = QStackedWidget()
         for key, cls in PAGES.items():
             holder = QWidget()
             hl = QVBoxLayout(holder)
-            hl.setContentsMargins(theme.px(24), theme.px(20), theme.px(24), theme.px(10))
+            hl.setContentsMargins(theme.px(20), theme.px(16), theme.px(20), theme.px(14))
             page = cls(self)
             hl.addWidget(page)
             self.stack.addWidget(holder)
             self.pages[key] = page
 
-        split = QSplitter(Qt.Vertical)
-        split.setChildrenCollapsible(False)
-        split.setHandleWidth(theme.px(10))
-        split.addWidget(self.stack)
-        split.addWidget(self._activity())
-        split.setStretchFactor(0, 1)
-        split.setSizes([theme.px(600), theme.px(150)])
-        remember("main_split", split)
-        h.addWidget(split, 1)
+        right = QVBoxLayout()
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(0)
+        self.split = QSplitter(Qt.Vertical)
+        self.split.setChildrenCollapsible(False)
+        self.split.setHandleWidth(theme.px(6))
+        self.split.addWidget(self.stack)
+        self.split.addWidget(self._log_panel())
+        self.split.setStretchFactor(0, 1)
+        self.split.setSizes([theme.px(640), theme.px(180)])
+        remember("main_split2", self.split)
+        right.addWidget(self.split, 1)
+        right.addWidget(self._status_bar())
+        h.addLayout(right, 1)
 
         self.setCentralWidget(root)
+        self._set_log_open(settings.load().get("log_open", False), save=False)
         self.show_page(self.current_key)
 
-    def _sidebar(self):
-        side = QFrame()
-        side.setObjectName("sidebar")
-        side.setFixedWidth(theme.px(232))
-        v = QVBoxLayout(side)
-        v.setContentsMargins(theme.px(18), theme.px(22), theme.px(14), theme.px(18))
-        brand = QHBoxLayout()
+    def _rail(self):
+        """A thin column of tool icons. Hover an icon to see the tool's name."""
+        rail = QFrame()
+        rail.setObjectName("rail")
+        rail.setFixedWidth(theme.px(64))
+        v = QVBoxLayout(rail)
+        v.setContentsMargins(theme.px(10), theme.px(14), theme.px(10), theme.px(14))
+        v.setSpacing(theme.px(6))
         logo = QLabel()
-        logo.setPixmap(icons.icon("logo", theme.GREEN, theme.px(34)).pixmap(theme.px(34), theme.px(34)))
-        brand.addWidget(logo)
-        names = QVBoxLayout()
-        names.setSpacing(0)
-        names.addWidget(label("Media Toolbox", "heading"))
-        names.addWidget(label("Everyday file tools", "caption"))
-        brand.addSpacing(theme.px(10))
-        brand.addLayout(names)
-        brand.addStretch(1)
-        v.addLayout(brand)
-        v.addSpacing(theme.px(16))
+        logo.setToolTip("Media Toolbox")
+        logo.setPixmap(icons.icon("logo", theme.GREEN, theme.px(30)).pixmap(theme.px(30), theme.px(30)))
+        logo.setAlignment(Qt.AlignCenter)
+        v.addWidget(logo)
+        v.addSpacing(theme.px(14))
         self.nav = {}
         for key, text, icon_name in NAV:
-            btn = button(text)
+            if key == "appearance":
+                v.addStretch(1)  # settings sit at the bottom, apart from the tools
+            btn = QPushButton()
+            btn.setProperty("rail", "true")
+            btn.setToolTip(text)
+            btn.setAccessibleName(text)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setFocusPolicy(Qt.NoFocus)  # the active tool shows its state, not a focus ring
-            btn.setProperty("nav", "true")
+            btn.setFixedSize(theme.px(44), theme.px(44))
             btn.setIconSize(QSize(theme.px(22), theme.px(22)))
             btn.clicked.connect(lambda _c=False, k=key: self.show_page(k))
-            v.addWidget(btn)
+            v.addWidget(btn, 0, Qt.AlignHCenter)
             self.nav[key] = (btn, icon_name)
-        v.addStretch(1)
-        tip = label("Resize me: drag the bars with dots between panels, and the column edges in the lists. "
-                    "Sizes are remembered.", "caption", wrap=True)
-        v.addWidget(tip)
-        return side
+        return rail
 
-    def _activity(self):
-        panel = card()
-        v = QVBoxLayout(panel)
-        v.setContentsMargins(theme.px(16), theme.px(12), theme.px(16), theme.px(14))
-        top = QHBoxLayout()
-        top.setSpacing(theme.px(12))
-        self.status = label("Ready", "heading")
-        top.addWidget(self.status)
+    def _status_bar(self):
+        """What is running, how far along it is, and the button that opens the log."""
+        bar = QFrame()
+        bar.setObjectName("statusbar")
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(theme.px(20), theme.px(6), theme.px(12), theme.px(6))
+        h.setSpacing(theme.px(12))
+        self.status = label("Ready")
+        self.status.setMinimumWidth(theme.px(160))
+        h.addWidget(self.status, 1)
         self.bar = QProgressBar()
         self.bar.setRange(0, 1000)
         self.bar.setValue(0)
         self.bar.setTextVisible(False)
-        top.addWidget(self.bar, 1)
+        self.bar.setFixedWidth(theme.px(280))
+        h.addWidget(self.bar)
+        self.log_toggle = button("Log")
+        self.log_toggle.setCheckable(True)
+        self.log_toggle.setToolTip("Show or hide the log of everything the tools have done")
+        self.log_toggle.toggled.connect(lambda on: self._set_log_open(on))
+        h.addWidget(self.log_toggle)
+        return bar
+
+    def _log_panel(self):
+        self.log_panel = QFrame()
+        self.log_panel.setObjectName("logpanel")
+        v = QVBoxLayout(self.log_panel)
+        v.setContentsMargins(theme.px(20), theme.px(10), theme.px(12), theme.px(10))
+        v.setSpacing(theme.px(6))
+        head = QHBoxLayout()
+        head.addWidget(label("Log", "heading"))
+        head.addStretch(1)
         clear = button("Clear log")
         clear.clicked.connect(self._clear_log)
-        top.addWidget(clear)
-        v.addLayout(top)
+        head.addWidget(clear)
+        v.addLayout(head)
         self.log_view = QPlainTextEdit()
         self.log_view.setObjectName("log")
         self.log_view.setReadOnly(True)
         self.log_view.setLineWrapMode(QPlainTextEdit.WidgetWidth)
         self.log_view.setMaximumBlockCount(5000)
         v.addWidget(self.log_view, 1)
-        return panel
+        return self.log_panel
+
+    def _set_log_open(self, on, save=True):
+        on = bool(on)
+        self.log_panel.setVisible(on)
+        if self.log_toggle.isChecked() != on:
+            self.log_toggle.blockSignals(True)
+            self.log_toggle.setChecked(on)
+            self.log_toggle.blockSignals(False)
+        if save:
+            settings.save({"log_open": on})
 
     def show_page(self, key):
         self.current_key = key
@@ -621,7 +621,7 @@ class App(QMainWindow):
             btn.setProperty("active", "true" if active else "false")
             btn.style().unpolish(btn)
             btn.style().polish(btn)
-            btn.setIcon(icons.icon(icon_name, theme.TEXT if active else theme.MUTED, theme.px(22)))
+            btn.setIcon(icons.icon(icon_name, theme.GREEN if active else theme.MUTED, theme.px(22)))
 
     # ---------- appearance ----------
     def change_appearance(self, **changes):
@@ -671,6 +671,8 @@ class App(QMainWindow):
 
     def _append_log(self, line):
         self.log_view.appendPlainText(line)
+        if "ERROR" in line and not self.log_panel.isVisible():
+            self._set_log_open(True)  # a failure should never go unseen
         self.log_view.verticalScrollBar().setValue(self.log_view.verticalScrollBar().maximum())
 
     def _clear_log(self):
@@ -701,7 +703,12 @@ def apply_settings(saved):
 def main():
     app = QApplication(sys.argv)
     theme.load_fonts()
-    apply_settings(settings.load())
+    saved = settings.load()
+    if not saved.get("design_v2"):
+        # The redesign ships with a new default theme. Switch to it once; Appearance can switch back.
+        settings.save({"theme": DEFAULT_THEME, "design_v2": True})
+        saved = settings.load()
+    apply_settings(saved)
     theme.apply(app)
     window = App()
     window.show()
