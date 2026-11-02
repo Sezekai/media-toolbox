@@ -4,7 +4,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QColor
 
 from PySide6.QtWidgets import (QApplication, QCheckBox, QColorDialog, QComboBox, QMenu, QFileDialog, QFrame, QHBoxLayout,
@@ -455,6 +455,9 @@ class App(QMainWindow):
             v.addWidget(btn)
             self.nav[key] = (btn, icon_name)
         v.addStretch(1)
+        self.font_btn = self._side_button("Font")
+        self.font_btn.clicked.connect(self._font_menu)
+        v.addWidget(self.font_btn)
         self.accent_btn = self._side_button("Accent colour")
         self.accent_btn.clicked.connect(self._accent_menu)
         v.addWidget(self.accent_btn)
@@ -476,7 +479,7 @@ class App(QMainWindow):
         return btn
 
     def _side_buttons(self):
-        return [btn for btn, _icon in self.nav.values()] + [self.accent_btn, self.collapse_btn]
+        return [btn for btn, _icon in self.nav.values()] + [self.font_btn, self.accent_btn, self.collapse_btn]
 
     def _apply_sidebar(self):
         width = SIDEBAR_EXPANDED if self.expanded else SIDEBAR_COLLAPSED
@@ -501,8 +504,28 @@ class App(QMainWindow):
         for k, (btn, icon_name) in self.nav.items():
             active = k == self.current_key
             btn.setIcon(icons.icon(icon_name, theme.ACCENT if active else theme.MUTED, 18))
+        self.font_btn.setIcon(icons.icon("font", theme.MUTED, 18))
         self.accent_btn.setIcon(icons.swatch(theme.ACCENT, 18))
         self.collapse_btn.setIcon(icons.icon("collapse" if self.expanded else "expand", theme.MUTED, 18))
+
+    # ---------- font ----------
+    def _font_menu(self):
+        menu = QMenu(self)
+        installed = theme.installed_fonts()
+        for name in theme.FONTS:
+            action = menu.addAction(name if name in installed else f"{name} (not installed)")
+            action.setCheckable(True)
+            action.setChecked(name == theme.FONT_NAME)
+            action.setEnabled(name in installed)
+            action.triggered.connect(lambda _c=False, n=name: self.set_font(n))
+        menu.exec(self.font_btn.mapToGlobal(self.font_btn.rect().topRight()))
+
+    def set_font(self, name):
+        """Use another font straight away, and remember it."""
+        theme.set_font(name)
+        settings.save({"font": name})
+        theme.apply(QApplication.instance())
+        QTimer.singleShot(0, self._fit_window)  # text widths changed, so the smallest window may too
 
     # ---------- accent colour ----------
     def _accent_menu(self):
@@ -654,7 +677,9 @@ class App(QMainWindow):
 def main():
     app = QApplication(sys.argv)
     theme.load_fonts()
-    theme.set_accent(settings.load().get("accent", theme.DEFAULT_ACCENT))
+    saved = settings.load()
+    theme.set_font(saved.get("font"))
+    theme.set_accent(saved.get("accent", theme.DEFAULT_ACCENT))
     theme.apply(app)
     window = App()
     window.show()

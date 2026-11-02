@@ -57,8 +57,21 @@ def set_accent(colour):
     GREEN = ACCENT
 
 # ----- type -----
-FAMILIES = ("Ubuntu", "Segoe UI", "Inter")  # Ubuntu (installed on the owner's PC), then fallbacks
-FAMILY = "Ubuntu"
+# The fonts the owner can pick from. Each names the weight used for normal text, headings and page titles.
+# Some installs list a font's weights as separate families ("Satoshi Black"), so those names are tried too.
+FONTS = {
+    "Satoshi": {"weights": {"body": 500, "heading": 700, "title": 900},
+                "styles": {500: "Satoshi Medium", 700: "Satoshi Bold", 900: "Satoshi Black"}},
+    "Ubuntu": {"weights": {"body": 400, "heading": 500, "title": 700},
+               "styles": {500: "Ubuntu Medium"}},
+    "Segoe UI": {"weights": {"body": 400, "heading": 600, "title": 700},
+                 "styles": {600: "Segoe UI Semibold"}},
+}
+DEFAULT_FONTS = ("Satoshi", "Ubuntu", "Segoe UI")  # the first one installed is used until the owner picks one
+WANTED_FONT = None   # the owner's pick (None = default order)
+FONT_NAME = "Segoe UI"
+FAMILY = "Segoe UI"  # family for normal text
+ROLE_FONT = {}       # role -> (family, weight)
 MONO = "Ubuntu Mono"
 TEXT_SIZES = {"caption": 12, "body": 13, "heading": 13, "title": 15}
 
@@ -85,10 +98,24 @@ def text_px(role="body"):
 
 
 def font(role="body", bold=False):
-    f = QFont(FAMILY)
+    family, weight = ROLE_FONT.get("heading" if bold and role == "body" else role, (FAMILY, 400))
+    f = QFont(family)
     f.setPixelSize(text_px(role))
-    f.setBold(bold or role in ("heading", "title"))
+    f.setWeight(QFont.Weight(weight))
     return f
+
+
+def installed_fonts():
+    """The font choices that are installed on this PC."""
+    available = set(QFontDatabase.families())
+    return [name for name in FONTS
+            if name in available or any(alt in available for alt in FONTS[name]["styles"].values())]
+
+
+def set_font(name):
+    """Choose the font (None = the first installed of the default order). Call apply(app) afterwards."""
+    global WANTED_FONT
+    WANTED_FONT = name if name in FONTS else None
 
 
 def load_fonts():
@@ -101,9 +128,22 @@ def load_fonts():
 
 
 def _resolve_family():
-    global FAMILY, MONO
+    global FAMILY, MONO, FONT_NAME, ROLE_FONT
     available = set(QFontDatabase.families())
-    FAMILY = next((f for f in FAMILIES if f in available), "Segoe UI")
+    choices = installed_fonts()
+    order = ([WANTED_FONT] if WANTED_FONT in choices else []) + [n for n in DEFAULT_FONTS if n in choices]
+    FONT_NAME = order[0] if order else "Segoe UI"
+    spec = FONTS.get(FONT_NAME, FONTS["Segoe UI"])
+    ROLE_FONT = {}
+    for role, weight in spec["weights"].items():
+        alt = spec["styles"].get(weight)
+        if FONT_NAME in available or not alt or alt not in available:
+            ROLE_FONT[role] = (FONT_NAME, weight)   # one family with real weights
+        else:
+            ROLE_FONT[role] = (alt, 400)            # the weight is installed as its own family
+    for role in ("caption", "value"):
+        ROLE_FONT[role] = ROLE_FONT["body"]
+    FAMILY = ROLE_FONT["body"][0]
     MONO = next((f for f in ("Ubuntu Mono", "Cascadia Mono", "Consolas", "DejaVu Sans Mono") if f in available),
                 "Consolas")
 
@@ -148,15 +188,15 @@ def stylesheet():
     ctrl = CONTROL_H - 2  # inside the one-pixel border
     return f"""
     * {{ outline: 0; }}
-    QWidget {{ color: {TEXT}; font-family: "{FAMILY}"; font-size: {text_px('body')}px; }}
+    QWidget {{ color: {TEXT}; font-family: "{ROLE_FONT['body'][0]}"; font-weight: {ROLE_FONT['body'][1]}; font-size: {text_px('body')}px; }}
     QWidget#root, QStackedWidget, QWidget#page {{ background: {BG}; }}
     QLabel {{ background: transparent; }}
-    QLabel[role="title"] {{ font-size: {text_px('title')}px; font-weight: 600; }}
-    QLabel[role="heading"] {{ font-weight: 600; }}
+    QLabel[role="title"] {{ font-size: {text_px('title')}px; font-family: "{ROLE_FONT['title'][0]}"; font-weight: {ROLE_FONT['title'][1]}; }}
+    QLabel[role="heading"] {{ font-family: "{ROLE_FONT['heading'][0]}"; font-weight: {ROLE_FONT['heading'][1]}; }}
     QLabel[role="muted"] {{ color: {MUTED}; }}
     QLabel[role="caption"] {{ color: {MUTED}; font-size: {text_px('caption')}px; }}
     QLabel[role="empty"] {{ color: {FAINT}; }}
-    QLabel[role="badge"] {{ color: {ACCENT}; font-size: {text_px('caption')}px; font-weight: 600; }}
+    QLabel[role="badge"] {{ color: {ACCENT}; font-size: {text_px('caption')}px; font-family: "{ROLE_FONT['heading'][0]}"; font-weight: {ROLE_FONT['heading'][1]}; }}
 
     QFrame#rail {{ background: {PANEL}; border-right: 1px solid {BORDER}; }}
     QFrame#toolbar, QFrame#panel, QFrame#card {{ background: {PANEL}; border: 1px solid {BORDER};
@@ -175,7 +215,7 @@ def stylesheet():
     QPushButton:disabled, QToolButton:disabled {{ color: {FAINT}; background: {PANEL}; }}
     QPushButton:checked {{ background: {SELECT}; border: 1px solid {SELECT}; }}
     QPushButton[kind="primary"] {{ background: {ACCENT}; color: {ON_ACCENT}; border: 1px solid {ACCENT};
-                                   font-weight: normal; }}
+                                   font-family: "{ROLE_FONT['body'][0]}"; font-weight: {ROLE_FONT['body'][1]}; }}
     QPushButton[kind="primary"]:hover {{ background: {ACCENT_HOVER}; border: 1px solid {ACCENT_HOVER}; }}
     QPushButton[kind="primary"]:disabled {{ background: {RAISED}; color: {FAINT}; border: 1px solid {BORDER}; }}
     QPushButton[kind="danger"] {{ color: {DANGER}; }}
@@ -190,7 +230,7 @@ def stylesheet():
                                min-height: 32px; max-height: 32px; }}
     QPushButton[rail="true"]:hover {{ background: {RAISED}; color: {TEXT}; }}
     QPushButton[rail="true"][active="true"] {{ background: {SELECT_SOFT}; color: {TEXT}; }}
-    QLabel#brand {{ font-weight: 600; }}
+    QLabel#brand {{ font-family: "{ROLE_FONT['heading'][0]}"; font-weight: {ROLE_FONT['heading'][1]}; }}
 
     QLineEdit, QComboBox, QSpinBox {{ background: {FIELD}; color: {TEXT}; border: 1px solid {BORDER};
                    border-radius: {R_CONTROL}px; padding: 0px 8px; min-height: {ctrl}px; max-height: {ctrl}px;
@@ -221,7 +261,7 @@ def stylesheet():
     QHeaderView {{ background: {FIELD}; border: none; }}
     QHeaderView::section {{ background: {PANEL}; color: {MUTED}; border: none; border-bottom: 1px solid {BORDER};
                            border-right: 1px solid {BORDER}; padding: 0px 8px; min-height: {ROW_H}px;
-                           font-size: {text_px('caption')}px; font-weight: 600; }}
+                           font-size: {text_px('caption')}px; font-family: "{ROLE_FONT['heading'][0]}"; font-weight: {ROLE_FONT['heading'][1]}; }}
     QHeaderView::section:last {{ border-right: none; }}
     QHeaderView::down-arrow, QHeaderView::up-arrow {{ width: 0px; height: 0px; }}
 

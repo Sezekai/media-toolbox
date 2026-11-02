@@ -1,6 +1,6 @@
 # Design: Media Toolbox
 
-Status: version 5, compact dark. Version 3 sizes, no sideways scrolling anywhere, Ubuntu type, a chosen accent colour, and a sidebar that shows labels or collapses to icons. Functionality is unchanged.
+Status: version 5, compact dark. Version 3 sizes, no sideways scrolling anywhere, Satoshi type (font and accent colour chosen from the sidebar), and a sidebar that shows labels or collapses to icons. Functionality is unchanged.
 
 ## Mode
 
@@ -12,11 +12,11 @@ One person at a Windows PC working through long lists of files and video copies.
 
 ## One look
 
-Everything comes from `theme.py`. The only choice is the accent colour (12 presets or any colour), set from the sidebar and remembered.
+Everything comes from `theme.py`. Two choices are offered in the sidebar and remembered: the font (Satoshi, Ubuntu or Segoe UI) and the accent colour (12 presets or any colour).
 
 - Colours: ground #111214, panels #18191c, raised controls #202226, fields and lists #0d0e10, hairlines #2a2c31. Text #e8eaed, secondary #9aa0a8, faint #6c727b. One accent, blue #4a9eff by default; text on it is white, regular weight. Hover, selection and the active tool are derived from the accent. Danger #e5484d, used only by Delete. Selected rows #1d3557.
 - Accent jobs only: the primary button, selection, progress, focus, the active tool and the "Best copy" tag.
-- Type: Ubuntu (Segoe UI if Ubuntu is missing), 13 px body, 12 px captions and column headers, 15 px page titles. Ubuntu Mono only in the log.
+- Type: Satoshi by default: Medium for text, Bold for headings, column headers and tags, Black for page titles. Ubuntu (Regular, Medium, Bold) and Segoe UI can be picked instead; a font that is not installed is shown greyed out. 13 px body, 12 px captions and column headers, 15 px page titles. Ubuntu Mono only in the log.
 - Icons: one outline set on a 24-unit grid, same stroke, round ends, drawn in code.
 
 ## Sizes
@@ -28,7 +28,7 @@ Everything comes from `theme.py`. The only choice is the accent colour (12 prese
 
 ## Layout
 
-- Sidebar on the left: 176 px with the tool names, or 44 px with icons only (names on hover). Collapse / Expand and Accent colour sit at the bottom. The choice is remembered.
+- Sidebar on the left: 176 px with the tool names, or 44 px with icons only (names on hover). Font, Accent colour and Collapse / Expand sit at the bottom. The choice is remembered.
 - Page header is one line: the title, then what the tool does, cut short with "..." if the window is narrow.
 - Tool bar: row one is the main folder and the main button at the right; row two is the second folder or the options.
 - Results panel takes all the remaining height. A summary sits on the left above the list and the list's own buttons on the right.

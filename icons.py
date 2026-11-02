@@ -72,6 +72,9 @@ def _draw(name, colour, size):
     elif name == "expand":     # double chevron pointing right
         line((6, 7), (11, 12), (6, 17))
         line((11.5, 7), (16.5, 12), (11.5, 17))
+    elif name == "font":       # a letter A
+        line((5, 19.5), (12, 4.5), (19, 19.5))
+        line((8.2, 13.5), (15.8, 13.5))
     elif name == "logo":       # three tiles
         box(3.5, 3.5, 10.5, 10.5, 2)
         box(13.5, 3.5, 20.5, 10.5, 2)
