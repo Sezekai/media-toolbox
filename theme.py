@@ -34,15 +34,15 @@ GREEN, ON_GREEN, CARD_BORDER = ACCENT, ON_ACCENT, BORDER
 FAMILIES = ("Segoe UI Variable Text", "Segoe UI", "Inter")  # Windows' own UI face first
 FAMILY = "Segoe UI"
 MONO = "Cascadia Mono"
-TEXT_SIZES = {"caption": 12, "body": 13, "heading": 13, "title": 15}
+TEXT_SIZES = {"caption": 11, "body": 12, "heading": 12, "title": 14}
 
 # ----- sizes (pixels) -----
-CONTROL_H = 28   # every button, text box, drop-down and spin box
-ROW_H = 24       # list rows
-GAP = 8          # between controls
-PAD = 10         # inside panels
-R_CONTROL = 5
-R_PANEL = 7
+CONTROL_H = 24   # every button, text box, drop-down and spin box
+ROW_H = 20       # list rows
+GAP = 6          # between controls
+PAD = 8          # inside panels
+R_CONTROL = 4
+R_PANEL = 6
 
 
 def px(n):
@@ -142,7 +142,7 @@ def stylesheet():
     QFrame#logpanel {{ background: {PANEL}; border-top: 1px solid {BORDER}; }}
 
     QPushButton, QToolButton {{ background: {RAISED}; color: {TEXT}; border: 1px solid {BORDER};
-                   border-radius: {R_CONTROL}px; padding: 0px 12px; min-height: {ctrl}px; max-height: {ctrl}px; }}
+                   border-radius: {R_CONTROL}px; padding: 0px 10px; min-height: {ctrl}px; max-height: {ctrl}px; }}
     QPushButton:hover, QToolButton:hover {{ background: {RAISED_HOVER}; }}
     QPushButton:focus, QToolButton:focus {{ border: 1px solid {ACCENT}; }}
     QPushButton:disabled, QToolButton:disabled {{ color: {FAINT}; background: {PANEL}; }}
@@ -155,29 +155,29 @@ def stylesheet():
     QPushButton[kind="danger"]:hover {{ background: {DANGER}; color: #ffffff; border: 1px solid {DANGER}; }}
     QPushButton[kind="danger"]:disabled {{ color: {FAINT}; }}
     QToolButton::menu-indicator {{ image: url("{_chevron()}"); subcontrol-position: right center;
-                                  right: 8px; width: 10px; height: 10px; }}
-    QToolButton[popupMode="2"] {{ padding-right: 24px; }}
+                                  right: 6px; width: 9px; height: 9px; }}
+    QToolButton[popupMode="2"] {{ padding-right: 20px; }}
 
     QPushButton[rail="true"] {{ background: transparent; border: none; border-radius: {R_CONTROL + 1}px;
-                               padding: 0px; min-height: 36px; max-height: 36px; }}
+                               padding: 0px; min-height: 32px; max-height: 32px; }}
     QPushButton[rail="true"]:hover {{ background: {RAISED}; }}
     QPushButton[rail="true"][active="true"] {{ background: {SELECT_SOFT}; }}
 
     QLineEdit, QComboBox, QSpinBox {{ background: {FIELD}; color: {TEXT}; border: 1px solid {BORDER};
-                   border-radius: {R_CONTROL}px; padding: 0px 8px; min-height: {ctrl}px; max-height: {ctrl}px;
+                   border-radius: {R_CONTROL}px; padding: 0px 6px; min-height: {ctrl}px; max-height: {ctrl}px;
                    selection-background-color: {SELECT}; }}
     QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{ border: 1px solid {ACCENT}; }}
     QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled {{ color: {FAINT}; }}
-    QComboBox {{ padding-right: 24px; }}
-    QComboBox::drop-down {{ border: none; width: 24px; }}
+    QComboBox {{ padding-right: 20px; }}
+    QComboBox::drop-down {{ border: none; width: 20px; }}
     QComboBox::down-arrow {{ image: url("{_chevron()}"); width: 10px; height: 10px; }}
     QComboBox QAbstractItemView {{ background: {RAISED}; color: {TEXT}; border: 1px solid {BORDER};
                                   selection-background-color: {SELECT}; padding: 4px; }}
     QSpinBox::up-button, QSpinBox::down-button {{ width: 0px; border: none; }}
 
-    QCheckBox {{ spacing: 8px; background: transparent; }}
+    QCheckBox {{ spacing: 6px; background: transparent; }}
     QCheckBox::indicator, QTreeWidget::indicator, QListWidget::indicator {{
-        width: 14px; height: 14px; border-radius: 3px; border: 1px solid {FAINT}; background: {FIELD}; }}
+        width: 12px; height: 12px; border-radius: 3px; border: 1px solid {FAINT}; background: {FIELD}; }}
     QCheckBox::indicator:hover {{ border: 1px solid {MUTED}; }}
     QCheckBox::indicator:checked, QTreeWidget::indicator:checked {{ background: {ACCENT}; border: 1px solid {ACCENT};
                                    image: url("{_check()}"); }}
@@ -197,7 +197,7 @@ def stylesheet():
     QHeaderView::down-arrow, QHeaderView::up-arrow {{ width: 0px; height: 0px; }}
 
     QPlainTextEdit#log {{ background: {FIELD}; color: {MUTED}; border: 1px solid {BORDER};
-                         border-radius: {R_CONTROL}px; padding: 6px; font-family: "{MONO}";
+                         border-radius: {R_CONTROL}px; padding: 4px; font-family: "{MONO}";
                          font-size: {text_px('caption')}px; selection-background-color: {SELECT}; }}
 
     QProgressBar {{ background: {TRACK}; border: none; border-radius: 2px; min-height: 4px; max-height: 4px; }}
@@ -220,7 +220,7 @@ def stylesheet():
     QSplitter::handle:hover {{ background: {BORDER}; }}
 
     QMenu {{ background: {RAISED}; border: 1px solid {BORDER}; padding: 4px; }}
-    QMenu::item {{ padding: 5px 16px; border-radius: 4px; }}
+    QMenu::item {{ padding: 4px 14px; border-radius: 3px; }}
     QMenu::item:selected {{ background: {SELECT}; }}
     QMenu::item:disabled {{ color: {FAINT}; }}
     QMenu::separator {{ height: 1px; background: {BORDER}; margin: 4px 6px; }}

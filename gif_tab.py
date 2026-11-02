@@ -50,7 +50,7 @@ class Timeline(QWidget):
         self.start = 0.0
         self.end = 0.0
         self._drag = None
-        self.setFixedHeight(52)
+        self.setFixedHeight(42)
         self.setMinimumWidth(200)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -73,8 +73,8 @@ class Timeline(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
         pad = 6
-        caption_h = theme.text_px("caption") + 6
-        top = 8
+        caption_h = theme.text_px("caption") + 4
+        top = 6
         bottom = h - caption_h
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(theme.TRACK))
@@ -188,8 +188,8 @@ class GifTab(Page):
         self.folder = line_edit(placeholder="Choose a folder")
         self.recursive = QCheckBox("Include subfolders")
         self.recursive.setChecked(True)
-        self.fps = line_edit("12", width=48)
-        self.width_px = line_edit("480", width=60)
+        self.fps = line_edit("12", width=40)
+        self.width_px = line_edit("480", width=50)
         self.quality = QComboBox()
         self.quality.addItems(list(gif_maker.QUALITY_PRESETS))
         self.out_dir = line_edit(placeholder="Empty = beside each video")
@@ -205,7 +205,7 @@ class GifTab(Page):
 
         # Top bar: the folder and how to load it, then the GIF settings and where the GIFs are saved
         self.quality.setToolTip("Higher quality = better colours, bigger file, slower")
-        self.quality.setFixedWidth(120)
+        self.quality.setFixedWidth(104)
         bar, rows = toolbar()
         top = tool_row()
         add_folder(top, "Video folder", self.folder, "Choose the video folder")
@@ -236,7 +236,7 @@ class GifTab(Page):
 
         # Left: the video list, its selection actions above it and the convert buttons below
         panel, pv = results_panel()
-        panel.setMinimumWidth(360)
+        panel.setMinimumWidth(300)
         self.list_summary = ElidedLabel("Load a folder, then click a video to set its clip.")
         pv.addLayout(results_bar(self.list_summary, self._button("Select all", self.select_all),
                                  self._button("Clear timeframes", self.clear_selected_ranges)))
@@ -255,7 +255,7 @@ class GifTab(Page):
 
         # Right: the timeframe editor, whose previews take the remaining height
         editor, ev = results_panel()
-        editor.setMinimumWidth(360)
+        editor.setMinimumWidth(300)
         head = QHBoxLayout()
         head.setSpacing(theme.GAP)
         head.addWidget(label("Timeframe", "heading"))
@@ -269,8 +269,8 @@ class GifTab(Page):
         ev.addWidget(self.timeline)
 
         controls = tool_row()
-        self.start_edit = line_edit(width=80)
-        self.end_edit = line_edit(width=80)
+        self.start_edit = line_edit(width=66)
+        self.end_edit = line_edit(width=66)
         self.start_edit.returnPressed.connect(self._apply_entries)
         self.end_edit.returnPressed.connect(self._apply_entries)
         apply_btn = button("Apply")
@@ -312,8 +312,8 @@ class GifTab(Page):
         box = card()
         box.setObjectName("preview")
         layout = QVBoxLayout(box)
-        layout.setContentsMargins(8, 6, 8, 8)
-        layout.setSpacing(4)
+        layout.setContentsMargins(6, 4, 6, 6)
+        layout.setSpacing(2)
         layout.addWidget(label(caption, "caption"))
         layout.addWidget(view, 1)
         return box

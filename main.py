@@ -42,7 +42,7 @@ class SilentPage(Page):
         self.recursive = QCheckBox("Include subfolders")
         self.recursive.setChecked(True)
         self.loud = QCheckBox("Also check audio level (slower)")
-        self.threshold = line_edit("-60", width=56)
+        self.threshold = line_edit("-60", width=48)
         self.threshold.setToolTip("When the audio level is checked, videos quieter than this count as silent")
 
         bar, rows = toolbar()
@@ -216,7 +216,7 @@ class WebpPage(Page):
         rows.addLayout(top)
         opts = tool_row()
         opts.addWidget(field_label("JPG quality"))
-        self.quality.setFixedWidth(90)
+        self.quality.setFixedWidth(76)
         opts.addWidget(self.quality)
         opts.addSpacing(8)
         opts.addWidget(self.recursive)
@@ -373,7 +373,7 @@ class App(QMainWindow):
         super().__init__()
         self.setWindowTitle("Media Toolbox")
         self.resize(1280, 820)
-        self.setMinimumSize(1024, 620)  # every page fits from this size up; nothing scrolls sideways
+        self.setMinimumSize(960, 560)  # every page fits from this size up; nothing scrolls sideways
         self.bridge = Bridge()
         self.current_key = "silent"
         self.nav = {}
@@ -395,7 +395,7 @@ class App(QMainWindow):
         for key, cls in PAGES.items():
             holder = QWidget()
             hl = QVBoxLayout(holder)
-            hl.setContentsMargins(12, 10, 12, 10)
+            hl.setContentsMargins(10, 8, 10, 8)
             page = cls(self)
             hl.addWidget(page)
             self.stack.addWidget(holder)
@@ -426,17 +426,17 @@ class App(QMainWindow):
         """A thin column of tool icons. Hover an icon to see the tool's name."""
         rail = QFrame()
         rail.setObjectName("rail")
-        rail.setFixedWidth(52)
+        rail.setFixedWidth(44)
         v = QVBoxLayout(rail)
-        v.setContentsMargins(8, 10, 8, 10)
-        v.setSpacing(4)
+        v.setContentsMargins(6, 8, 6, 8)
+        v.setSpacing(2)
         logo = QLabel()
         logo.setToolTip("Media Toolbox")
-        logo.setPixmap(icons.icon("logo", theme.ACCENT, 22).pixmap(22, 22))
+        logo.setPixmap(icons.icon("logo", theme.ACCENT, 20).pixmap(20, 20))
         logo.setAlignment(Qt.AlignCenter)
-        logo.setFixedHeight(28)
+        logo.setFixedHeight(24)
         v.addWidget(logo)
-        v.addSpacing(10)
+        v.addSpacing(8)
         self.nav = {}
         for key, text, icon_name in NAV:
             btn = QPushButton()
@@ -445,8 +445,8 @@ class App(QMainWindow):
             btn.setAccessibleName(text)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setFocusPolicy(Qt.NoFocus)  # the active tool shows its state, not a focus ring
-            btn.setFixedSize(36, 36)
-            btn.setIconSize(QSize(20, 20))
+            btn.setFixedSize(32, 32)
+            btn.setIconSize(QSize(18, 18))
             btn.clicked.connect(lambda _c=False, k=key: self.show_page(k))
             v.addWidget(btn, 0, Qt.AlignHCenter)
             self.nav[key] = (btn, icon_name)
@@ -458,8 +458,8 @@ class App(QMainWindow):
         bar = QFrame()
         bar.setObjectName("statusbar")
         h = QHBoxLayout(bar)
-        bar.setFixedHeight(36)
-        h.setContentsMargins(14, 0, 8, 0)
+        bar.setFixedHeight(30)
+        h.setContentsMargins(12, 0, 6, 0)
         h.setSpacing(12)
         self.status = ElidedLabel("Ready")
         h.addWidget(self.status, 1)
@@ -467,9 +467,9 @@ class App(QMainWindow):
         self.bar.setRange(0, 1000)
         self.bar.setValue(0)
         self.bar.setTextVisible(False)
-        self.bar.setFixedWidth(240)
+        self.bar.setFixedWidth(200)
         h.addWidget(self.bar)
-        self.log_toggle = button("Log", icon=icons.icon("log", theme.MUTED, 16))
+        self.log_toggle = button("Log", icon=icons.icon("log", theme.MUTED, 14))
         self.log_toggle.setCheckable(True)
         self.log_toggle.setToolTip("Show or hide the log of everything the tools have done")
         self.log_toggle.toggled.connect(lambda on: self._set_log_open(on))
@@ -480,8 +480,8 @@ class App(QMainWindow):
         self.log_panel = QFrame()
         self.log_panel.setObjectName("logpanel")
         v = QVBoxLayout(self.log_panel)
-        v.setContentsMargins(12, 8, 12, 8)
-        v.setSpacing(6)
+        v.setContentsMargins(10, 6, 10, 6)
+        v.setSpacing(4)
         head = QHBoxLayout()
         head.addWidget(label("Log", "heading"))
         head.addStretch(1)
@@ -515,7 +515,7 @@ class App(QMainWindow):
             btn.setProperty("active", "true" if active else "false")
             btn.style().unpolish(btn)
             btn.style().polish(btn)
-            btn.setIcon(icons.icon(icon_name, theme.ACCENT if active else theme.MUTED, 20))
+            btn.setIcon(icons.icon(icon_name, theme.ACCENT if active else theme.MUTED, 18))
 
     # ---------- thread-safe updates ----------
     # Background threads never touch the UI directly; they hand callables to the UI thread.

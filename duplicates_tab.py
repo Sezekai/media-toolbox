@@ -18,13 +18,13 @@ import duplicates_engine as de
 import icons
 import settings
 import theme
-from widgets import (ElidedLabel, Page, add_folder, button, empty_state, field_label, label, line_edit, muted,
+from widgets import (ElidedLabel, FlowLayout, Page, add_folder, button, empty_state, field_label, label, line_edit, muted,
                      remember, results_panel, tool_row, toolbar)
 
-LEFT_W = 290          # the options column (including room for its scroll bar)
-MIDDLE_MIN_W = 372    # the groups list
-COMPARE_MIN_W = 262   # the comparison
-CARD_W = 250          # a copy card at 100% size
+LEFT_W = 244          # the options column (including room for its scroll bar)
+MIDDLE_MIN_W = 334    # the groups list
+COMPARE_MIN_W = 230   # the comparison
+CARD_W = 210          # a copy card at 100% size
 
 ROW_PATH = Qt.UserRole
 ROW_GROUP = Qt.UserRole + 1
@@ -140,9 +140,12 @@ class CopyCard(QFrame):
             rows.append(("Starts at", f"{de.format_seconds(item['offset'])} in the longer video"))
         return rows
 
-    def set_zoom(self, zoom):
+    def set_zoom(self, zoom, max_width=None):
         width = int(CARD_W * zoom)
-        pad = max(6, int(10 * zoom))
+        if max_width:
+            width = max(120, min(width, max_width))  # never wider than the comparison area
+            zoom = width / CARD_W
+        pad = max(5, int(8 * zoom))
         self.setFixedWidth(width)
         inner = width - 2 * pad - 2
         height = int(inner * 9 / 16)
@@ -195,7 +198,7 @@ class DuplicatesPage(Page):
         self.mode.addItem("Check videos against a library", "library")
         self.mode.setCurrentIndex(0 if opts.get("mode", "folder") == "folder" else 1)
         self.mode.currentIndexChanged.connect(self._show_mode)
-        self.mode.setFixedWidth(250)
+        self.mode.setFixedWidth(210)
 
         self.folder = line_edit(saved.get("dup_last_folder", ""), placeholder="Choose the folder to search")
         self.recursive = QCheckBox("Include subfolders")
@@ -247,7 +250,7 @@ class DuplicatesPage(Page):
         self.percent.setValue(int(opts.get("percent", 95)))
         self.percent.setToolTip(EXPLAIN_EXACT)
         self.percent_label = label("", "muted")
-        self.percent_label.setFixedWidth(36)
+        self.percent_label.setFixedWidth(32)
         self.percent_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.percent.valueChanged.connect(lambda v: self.percent_label.setText(f"{v}%"))
         self.percent_label.setText(f"{self.percent.value()}%")
@@ -314,7 +317,7 @@ class DuplicatesPage(Page):
         remove.clicked.connect(self._remove_files)
         files_head.addWidget(remove)
         fv.addLayout(files_head)
-        self.files.setMinimumHeight(96)
+        self.files.setMinimumHeight(80)
         fv.addWidget(self.files, 1)
 
         left_host = QWidget()
@@ -407,12 +410,12 @@ class DuplicatesPage(Page):
 
         # ----- right column: the copies side by side, with zoom -----
         self.compare_host = QWidget()
-        self.compare_row = QHBoxLayout(self.compare_host)
-        self.compare_row.setContentsMargins(0, 0, 0, 0)
-        self.compare_row.setSpacing(theme.GAP)
+        self.compare_row = FlowLayout(self.compare_host, spacing=theme.GAP)  # cards wrap into rows
         self.compare_scroll = QScrollArea()
         self.compare_scroll.setWidgetResizable(True)
         self.compare_scroll.setFrameShape(QFrame.NoFrame)
+        self.compare_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # up and down only
+        self.compare_empty = empty_state("Select a group to compare its copies.")
         self.compare_scroll.setWidget(self.compare_host)
         self.compare_scroll.viewport().installEventFilter(self)  # Ctrl + wheel zooms the cards
 
@@ -420,10 +423,10 @@ class DuplicatesPage(Page):
         self.zoom_slider.setRange(int(ZOOM_MIN * 100), int(ZOOM_MAX * 100))
         self.zoom_slider.setValue(round(self.zoom * 100))
         self.zoom_slider.valueChanged.connect(lambda v: self._set_zoom(v / 100))
-        self.zoom_slider.setFixedWidth(90)
+        self.zoom_slider.setFixedWidth(80)
         self.zoom_slider.setToolTip("Card size (Ctrl + mouse wheel over the cards also works)")
         self.zoom_label = label("", "muted")
-        self.zoom_label.setFixedWidth(40)
+        self.zoom_label.setFixedWidth(36)
         self.zoom_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         compare, cv = results_panel()
         compare.setMinimumWidth(COMPARE_MIN_W)
@@ -437,6 +440,7 @@ class DuplicatesPage(Page):
         head_box.setLayout(head)
         cv.addWidget(head_box)
         cv.addWidget(self.compare_scroll, 1)
+        cv.addWidget(self.compare_empty, 1)
         self._update_zoom_label()
 
         # ----- the groups and the comparison share the width; the options column stays fixed -----
@@ -478,10 +482,10 @@ class DuplicatesPage(Page):
         """An option that belongs to the tick box above it: indented, label left, value right."""
         row = QWidget()
         h = QHBoxLayout(row)
-        h.setContentsMargins(22, 0, 0, 0)
+        h.setContentsMargins(19, 0, 0, 0)
         h.setSpacing(theme.GAP)
         h.addWidget(muted(text), 1)
-        spin.setFixedWidth(64)
+        spin.setFixedWidth(54)
         h.addWidget(spin)
         return row
 
@@ -502,12 +506,20 @@ class DuplicatesPage(Page):
         })
 
     # ---------- zoom ----------
+    def _card_room(self):
+        """The widest a card may be: the width of the comparison area, minus room for its scroll bar."""
+        return max(120, self.compare_scroll.viewport().width() - 12)
+
     def eventFilter(self, obj, event):
-        if event.type() != QEvent.Wheel:
+        if event.type() not in (QEvent.Wheel, QEvent.Resize):
             return super().eventFilter(obj, event)
         try:
             viewport = self.compare_scroll.viewport()
         except RuntimeError:  # the window is closing
+            return False
+        if obj is viewport and event.type() == QEvent.Resize:
+            for card_widget in self.cards:  # the panel was resized: re-fit the cards
+                card_widget.set_zoom(self.zoom, self._card_room())
             return False
         if obj is viewport and event.modifiers() & Qt.ControlModifier:
             step = 0.1 if event.angleDelta().y() > 0 else -0.1
@@ -518,7 +530,7 @@ class DuplicatesPage(Page):
     def _set_zoom(self, zoom):
         self.zoom = min(ZOOM_MAX, max(ZOOM_MIN, zoom))
         for card_widget in self.cards:
-            card_widget.set_zoom(self.zoom)
+            card_widget.set_zoom(self.zoom, self._card_room())
         self._update_zoom_label()
         settings.save({"dup_zoom": round(self.zoom, 2)})
 
@@ -764,16 +776,18 @@ class DuplicatesPage(Page):
         group, _item = self._selection()
         if group is None:
             # Centred in the whole comparison area, so it reads as a placeholder, not stray text
-            self.compare_row.addWidget(empty_state("Select a group to compare its copies side by side."), 1)
+            self.compare_scroll.hide()
+            self.compare_empty.show()  # centred in the whole comparison area
             return
+        self.compare_empty.hide()
+        self.compare_scroll.show()
         for item in sorted(group["items"], key=lambda i: (not i["best"], -i["pixels"])):
             widget = CopyCard(item, self.thumbs.get(item["path"]))
-            widget.set_zoom(self.zoom)
+            widget.set_zoom(self.zoom, self._card_room())
             widget.clicked.connect(self._open_card)
             widget.context_requested.connect(self._card_menu)
             self.cards.append(widget)
-            self.compare_row.addWidget(widget, 0, Qt.AlignTop)
-        self.compare_row.addStretch(1)
+            self.compare_row.addWidget(widget)
 
     def _open_card(self, path):
         try:
