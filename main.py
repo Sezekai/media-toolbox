@@ -1,6 +1,7 @@
 """Media Toolbox: a sidebar app with one page per tool."""
 import sys
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -351,6 +352,14 @@ class CopyPage(Page):
                                 skip=self.checklist.unchecked_paths())
 
 
+def _clock_text(seconds):
+    """3:07, 12:31 or 1:04:09."""
+    seconds = int(round(seconds))
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
 SIDEBAR_EXPANDED = 176  # with the tool names
 SIDEBAR_COLLAPSED = 44  # icons only
 
@@ -378,6 +387,13 @@ class App(QMainWindow):
         self.setWindowTitle("Media Toolbox")
         self.resize(1280, 820)
         self.bridge = Bridge()
+        self._last_progress = (0, 0, "Ready", None, False)
+        self._job_started = None
+        self._paused_at = None
+        self._paused_total = 0.0
+        self._clock = QTimer(self)
+        self._clock.setInterval(1000)
+        self._clock.timeout.connect(self._show_status)  # keeps the elapsed time ticking
         self.current_key = "silent"
         self.nav = {}
         self.pages = {}
@@ -638,17 +654,60 @@ class App(QMainWindow):
     def on_main(self, fn):
         self.bridge.call.emit(fn)
 
-    def progress(self, done, total, text=""):
-        """Show progress for the running job, e.g. progress(3, 10, "Converting")."""
-        self.bridge.call.emit(lambda: self._set_progress(done, total, text))
+    def progress(self, done, total, text="", overall=None, eta=True):
+        """Show progress for the running job, e.g. progress(3, 10, "Converting").
+        overall: the share of the whole job that is done (0 to 1), when it differs from done / total.
+        eta: True to estimate the time left from the overall share, False for none, or a number of seconds."""
+        self.bridge.call.emit(lambda: self._set_progress(done, total, text, overall, eta))
 
-    def _set_progress(self, done, total, text):
-        if total:
-            self.bar.setValue(round(done / total * 1000))
-            self.status.setText(f"{text}: {done} of {total}  ({done * 100 / total:.0f}%)")
-        else:
-            self.bar.setValue(0)
-            self.status.setText(text)
+    def _set_progress(self, done, total, text, overall=None, eta=True):
+        self._last_progress = (done, total, text, overall, eta)
+        share = overall if overall is not None else (done / total if total else None)
+        self.bar.setValue(round(min(max(share, 0.0), 1.0) * 1000) if share is not None else 0)
+        self._show_status()
+
+    # ----- job clock: how long the job has run, and roughly how long is left -----
+    def _clock_start(self):
+        self._job_started = time.monotonic()
+        self._paused_at = None
+        self._paused_total = 0.0
+        self._clock.start()
+
+    def _clock_stop(self):
+        self._clock.stop()
+        self._job_started = None
+
+    def pause_clock(self, paused):
+        """Called by a page when it pauses or continues its job, so paused time is not counted."""
+        if self._job_started is None:
+            return
+        if paused and self._paused_at is None:
+            self._paused_at = time.monotonic()
+        elif not paused and self._paused_at is not None:
+            self._paused_total += time.monotonic() - self._paused_at
+            self._paused_at = None
+        self._show_status()
+
+    def _elapsed(self):
+        if self._job_started is None:
+            return 0.0
+        now = self._paused_at or time.monotonic()
+        return now - self._job_started - self._paused_total
+
+    def _show_status(self):
+        done, total, text, overall, eta = self._last_progress
+        parts = [f"{text}: {done:,} of {total:,} ({done * 100 / total:.0f}%)" if total else text]
+        if self._job_started is not None:
+            elapsed = self._elapsed()
+            parts.append(f"{_clock_text(elapsed)} elapsed")
+            share = overall if overall is not None else (done / total if total else None)
+            if eta is True and share and 0.01 <= share < 1 and elapsed >= 5:
+                eta = elapsed * (1 - share) / share
+            if eta is not True and eta is not False and eta is not None and eta > 0:
+                parts.append(f"about {_clock_text(eta)} left")
+            if self._paused_at is not None:
+                parts.insert(0, "Paused")
+        self.status.setText("  \u00b7  ".join(parts))
 
     def _append_log(self, line):
         self.log_view.appendPlainText(line)
@@ -662,15 +721,18 @@ class App(QMainWindow):
     def run_background(self, fn, *args, **kwargs):
         """Run fn in a thread. fn receives log= and progress= callbacks automatically."""
         def worker():
+            self.on_main(self._clock_start)
             self.progress(0, 0, "Starting...")
             self.log("Started.")
             try:
                 fn(*args, log=self.log, progress=self.progress, **kwargs)
-                self.progress(1, 1, "Finished")
-                self.log("Finished.")
+                self.log(f"Finished in {_clock_text(self._elapsed())}.")
+                self.progress(1, 1, "Finished", eta=False)
             except Exception as exc:  # report errors in the log instead of crashing
-                self.progress(0, 0, "Failed, see log")
+                self.progress(0, 0, "Failed, see log", eta=False)
                 self.log(f"ERROR: {exc}")
+            finally:
+                self.on_main(self._clock_stop)
         threading.Thread(target=worker, daemon=True).start()
 
 

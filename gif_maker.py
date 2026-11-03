@@ -61,22 +61,23 @@ def make_gif(src, dst, start, end, fps, width, quality="Standard"):
         raise RuntimeError(lines[-1] if lines else "ffmpeg failed")
 
 
-def convert_batch(jobs, fps, width, quality, out_dir, log=print, progress=None):
-    """jobs: list of (source Path, start seconds, end seconds or None for the whole video)."""
+def convert_batch(jobs, quality, out_dir, log=print, progress=None):
+    """jobs: list of (source Path, start seconds, end seconds or None for the whole video, fps, width).
+    Every video can have its own frame rate and width."""
     progress = progress or noop
     if out_dir:
         Path(out_dir).mkdir(parents=True, exist_ok=True)
     total = len(jobs)
     made = 0
-    log(f"Quality: {quality}, {fps} fps, {width} px wide")
-    for i, (src, start, end) in enumerate(jobs, 1):
+    log(f"Quality: {quality}")
+    for i, (src, start, end, fps, width) in enumerate(jobs, 1):
         progress(i - 1, total, "Converting")
         dst = output_path(src, out_dir)
         if end is None and start <= 0:
             label = "whole video"
         else:
             label = f"{start:.2f}s to {end:.2f}s" if end is not None else f"from {start:.2f}s"
-        log(f"[{i}/{total}] {src.name} ({label}) -> {dst.name}")
+        log(f"[{i}/{total}] {src.name} ({label}, {fps:g} fps, {width} px) -> {dst.name}")
         try:
             make_gif(src, dst, start, end, fps, width, quality)
             made += 1

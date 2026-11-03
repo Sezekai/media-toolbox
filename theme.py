@@ -248,7 +248,7 @@ def stylesheet():
     QCheckBox::indicator, QTreeWidget::indicator, QListWidget::indicator {{
         width: 14px; height: 14px; border-radius: 3px; border: 1px solid {FAINT}; background: {FIELD}; }}
     QCheckBox::indicator:hover {{ border: 1px solid {MUTED}; }}
-    QCheckBox::indicator:checked, QTreeWidget::indicator:checked {{ background: {ACCENT}; border: 1px solid {ACCENT};
+    QCheckBox::indicator:checked, QTreeWidget::indicator:checked, QListWidget::indicator:checked {{ background: {ACCENT}; border: 1px solid {ACCENT};
                                    image: url("{_check()}"); }}
     QCheckBox:disabled {{ color: {FAINT}; }}
 

@@ -43,6 +43,36 @@ def probe_duration(path):
         return None
 
 
+def probe_video(path):
+    """{"duration", "fps", "width", "height"} of a video; any value it cannot read is None."""
+    result = run(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                  "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate:format=duration",
+                  "-of", "default=noprint_wrappers=1", str(path)])
+    values = {}
+    for line in result.stdout.splitlines():
+        key, _, value = line.partition("=")
+        values.setdefault(key.strip(), value.strip())
+
+    def number(text):
+        try:
+            return float(text)
+        except (TypeError, ValueError):
+            return None
+
+    def rate(text):
+        num, _, den = (text or "").partition("/")
+        num, den = number(num), number(den or "1")
+        return num / den if num and den else None
+
+    width, height = number(values.get("width")), number(values.get("height"))
+    return {
+        "duration": number(values.get("duration")),
+        "fps": rate(values.get("avg_frame_rate")) or rate(values.get("r_frame_rate")),
+        "width": int(width) if width else None,
+        "height": int(height) if height else None,
+    }
+
+
 def find_videos(folder, recursive):
     folder = Path(folder)
     iterator = folder.rglob("*") if recursive else folder.glob("*")

@@ -202,15 +202,100 @@ class Options:
         self.visual_hit = visual_hit
 
 
+def _process_tree(root_pid):
+    """The pid and every child process below it (the engine starts FFmpeg and other helpers)."""
+    if sys.platform != "win32":
+        return [root_pid]
+    import ctypes
+    from ctypes import wintypes
+
+    class ENTRY(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD),
+                    ("cntThreads", wintypes.DWORD), ("th32ParentProcessID", wintypes.DWORD),
+                    ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD),
+                    ("szExeFile", ctypes.c_wchar * 260)]
+
+    kernel = ctypes.windll.kernel32
+    kernel.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+    kernel.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    snap = kernel.CreateToolhelp32Snapshot(0x2, 0)  # all processes
+    children = {}
+    try:
+        entry = ENTRY()
+        entry.dwSize = ctypes.sizeof(ENTRY)
+        ok = kernel.Process32FirstW(snap, ctypes.byref(entry))
+        while ok:
+            children.setdefault(entry.th32ParentProcessID, []).append(entry.th32ProcessID)
+            ok = kernel.Process32NextW(snap, ctypes.byref(entry))
+    finally:
+        kernel.CloseHandle(snap)
+    found, todo = [], [root_pid]
+    while todo:
+        pid = todo.pop()
+        if pid in found:
+            continue
+        found.append(pid)
+        todo.extend(children.get(pid, []))
+    return found
+
+
+def _suspend(pid, resume):
+    """Pause (or continue) one process without ending it."""
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+        kernel, ntdll = ctypes.windll.kernel32, ctypes.windll.ntdll
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        fn = ntdll.NtResumeProcess if resume else ntdll.NtSuspendProcess
+        fn.argtypes = [wintypes.HANDLE]
+        handle = kernel.OpenProcess(0x0800, False, pid)  # PROCESS_SUSPEND_RESUME
+        if handle:
+            try:
+                fn(handle)
+            finally:
+                kernel.CloseHandle(handle)
+    else:
+        import signal
+        try:
+            os.kill(pid, signal.SIGCONT if resume else signal.SIGSTOP)
+        except OSError:
+            pass
+
+
 class ScanState:
-    """Holds the running engine process so the Cancel button can stop it from the UI thread."""
+    """Holds the running engine process so the page can pause, continue or stop it from the UI thread.
+    Stopping keeps the work done so far: the engine saves its fingerprints every minute, and the next scan
+    skips everything already in the database."""
 
     def __init__(self):
         self.proc = None
         self.cancelled = False
+        self.paused = False
+
+    def pause(self):
+        proc = self.proc
+        if proc and proc.poll() is None and not self.paused:
+            for pid in _process_tree(proc.pid):
+                _suspend(pid, resume=False)
+            self.paused = True
+
+    def resume(self):
+        proc = self.proc
+        if proc and proc.poll() is None and self.paused:
+            for pid in _process_tree(proc.pid):
+                _suspend(pid, resume=True)
+        self.paused = False
 
     def cancel(self):
         self.cancelled = True
+        if self.paused:
+            self.resume()  # a paused process cannot be ended cleanly
         proc = self.proc
         if proc and proc.poll() is None:
             if sys.platform == "win32":
@@ -227,6 +312,7 @@ def build_command(engine, folders, options, db_path, out_file):
     if not options.recursive:
         cmd.append("--no-subdirs")
     cmd += ["--percent", f"{options.percent:g}", "--db", str(db_path),
+            "--checkpoint-interval", "1",  # save fingerprints every minute, so stopping loses little
             "--format", "json", "--output", str(out_file)]
     if options.audio:
         cmd += ["--partial-clip-detection",
@@ -426,6 +512,24 @@ def check_files_against_library(files, library, cfg, state, log, progress, db_pa
         if len(items) >= 2:
             kept.append({"key": group_key([i["path"] for i in items]), "items": items})
     return kept
+
+
+def check_files_one_by_one(files, library, cfg, state, log, progress, db_path, on_file_done):
+    """Check each picked video on its own, so its results can be shown as soon as it is done.
+    on_file_done(path, groups) is called after every video. Stops between videos when cancelled.
+    The library's fingerprints are saved after the first video, so later videos only redo the comparison."""
+    for index, path in enumerate(files):
+        if state.cancelled:
+            return
+
+        def file_progress(done, total, stage, index=index):
+            progress(done, total, stage, index)
+
+        log(f"Checking video {index + 1} of {len(files)}: {Path(path).name}")
+        groups = check_files_against_library([path], library, cfg, state, log, file_progress, db_path)
+        if state.cancelled:
+            return
+        on_file_done(path, groups)
 
 
 # ---------- acting on results ----------

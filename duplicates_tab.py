@@ -9,9 +9,9 @@ import threading
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtGui import QColor, QImage, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu,
-                               QListWidget, QMessageBox, QScrollArea, QSlider, QSpinBox, QSplitter, QToolButton, QTreeWidget,
+                               QListWidget, QListWidgetItem, QMessageBox, QScrollArea, QSlider, QSpinBox, QSplitter, QToolButton, QTreeWidget,
                                QTreeWidgetItem, QVBoxLayout, QWidget)
 
 import duplicates_engine as de
@@ -25,6 +25,38 @@ LEFT_W = 290          # the options column (including room for its scroll bar)
 MIDDLE_MIN_W = 372    # the groups list
 COMPARE_MIN_W = 262   # the comparison
 CARD_W = 250          # a copy card at 100% size
+
+FILE_DONE = Qt.UserRole + 1   # on a "Videos to check" row: matches found, or None when not checked yet
+
+
+def _library_results_file():
+    return de.data_dir() / "library_results.json"
+
+
+def save_library_results(groups):
+    """Keep the results of library checks, so they are still there after the app is closed."""
+    import json
+    plain = [{"key": g["key"], "items": [dict(i, flags=sorted(i.get("flags", ()))) for i in g["items"]]}
+             for g in groups]
+    try:
+        _library_results_file().write_text(json.dumps(plain), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def load_library_results():
+    import json
+    try:
+        plain = json.loads(_library_results_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    groups = []
+    for g in plain:
+        items = [dict(i, flags=set(i.get("flags", ()))) for i in g.get("items", []) if Path(i["path"]).exists()]
+        if len(items) >= 2:
+            groups.append({"key": g["key"], "items": items})
+    return groups
+
 
 ROW_PATH = Qt.UserRole
 ROW_GROUP = Qt.UserRole + 1
@@ -206,9 +238,20 @@ class DuplicatesPage(Page):
         self.library = line_edit(saved.get("dup_last_library", ""), placeholder="Choose the library folder")
         self.files = QListWidget()
         self.files.setSelectionMode(QListWidget.ExtendedSelection)
+        self.files.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # long names are shortened, not scrolled
+        self.files.setTextElideMode(Qt.ElideMiddle)
+        self.files.setToolTip("Ticked videos are checked on the next scan. Videos already checked are unticked "
+                              "and show how many matches they had.")
+        done = saved.get("dup_files_done", {})
         for path in saved.get("dup_last_files", []):
             if Path(path).exists():
-                self.files.addItem(path)
+                self._add_file_item(path, done.get(path))
+        self.one_by_one = QCheckBox("One video at a time")
+        self.one_by_one.setChecked(opts.get("one_by_one", True))
+        self.one_by_one.setToolTip(
+            "Checks each video on its own, so its matches show as soon as it is done, and you can stop and "
+            "check the rest later.\nThe library is only fingerprinted once, but the comparison is repeated for "
+            "each video, so a long list can take longer overall.")
 
         self.panel_a = QWidget()
         a = tool_row()
@@ -226,15 +269,23 @@ class DuplicatesPage(Page):
 
         self.scan_btn = button("Scan", "primary", icons.icon("search", theme.ON_ACCENT, 16))
         self.scan_btn.clicked.connect(self._scan)
-        self.cancel_btn = button("Cancel")
+        self.cancel_btn = button("Stop")
+        self.cancel_btn.setToolTip("Stop the scan. Fingerprints made so far are kept, so the next scan "
+                                   "continues from there. Videos already checked keep their results.")
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.clicked.connect(self._cancel)
+        self.pause_btn = button("Pause")
+        self.pause_btn.setToolTip("Pause the scan and continue it later, without losing any work "
+                                  "(keep the app open while it is paused)")
+        self.pause_btn.setEnabled(False)
+        self.pause_btn.clicked.connect(self._toggle_pause)
 
         bar, rows = toolbar()
         top = tool_row()
         top.addWidget(field_label("Mode"))
         top.addWidget(self.mode)
         top.addStretch(1)
+        top.addWidget(self.pause_btn)
         top.addWidget(self.cancel_btn)
         top.addWidget(self.scan_btn)
         rows.addLayout(top)
@@ -314,11 +365,19 @@ class DuplicatesPage(Page):
         files_head = tool_row()
         files_head.addWidget(label("Videos to check", "heading"), 1)
         remove = button("Remove")
+        remove.setToolTip("Take the selected videos off the list")
         remove.clicked.connect(self._remove_files)
         files_head.addWidget(remove)
         fv.addLayout(files_head)
         self.files.setMinimumHeight(96)
         fv.addWidget(self.files, 1)
+        files_foot = tool_row()
+        files_foot.addWidget(self.one_by_one, 1)
+        again = button("Check all again")
+        again.setToolTip("Tick every video again and clear the results of earlier checks")
+        again.clicked.connect(self._check_all_again)
+        files_foot.addWidget(again)
+        fv.addLayout(files_foot)
 
         left_host = QWidget()
         self.left = QVBoxLayout(left_host)
@@ -333,7 +392,7 @@ class DuplicatesPage(Page):
         left_scroll.setFrameShape(QFrame.NoFrame)
         left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         left_scroll.setWidget(left_host)
-        left_scroll.setFixedWidth(LEFT_W)
+        left_scroll.setMinimumWidth(LEFT_W)
         self.left_scroll = left_scroll
         self._show_mode(self.mode.currentIndex())
 
@@ -444,26 +503,29 @@ class DuplicatesPage(Page):
         self._update_zoom_label()
 
         # ----- the groups and the comparison share the width; the options column stays fixed -----
+        # ----- three resizable columns: options, groups, comparison -----
         split = QSplitter(Qt.Horizontal)
         split.setChildrenCollapsible(False)
         split.setHandleWidth(theme.GAP)
+        split.addWidget(left_scroll)
         split.addWidget(middle)
         split.addWidget(compare)
-        split.setStretchFactor(0, 2)
-        split.setStretchFactor(1, 3)
-        remember("dup_split", split)
-        if "v3:dup_split" not in settings.load().get("layout", {}):  # first run: the comparison gets more room
-            QTimer.singleShot(0, lambda: split.setSizes([int(split.width() * 0.4), int(split.width() * 0.6)]))
-        columns = QHBoxLayout()
-        columns.setContentsMargins(0, 0, 0, 0)
-        columns.setSpacing(theme.GAP)
-        columns.addWidget(left_scroll)
-        columns.addWidget(split, 1)
-        self.body.addLayout(columns, 1)
+        split.setStretchFactor(0, 0)
+        split.setStretchFactor(1, 2)
+        split.setStretchFactor(2, 3)
+        remember("dup_columns", split)
+        if "v3:dup_columns" not in settings.load().get("layout", {}):  # first run: share out the width
+            def share():
+                rest = max(0, split.width() - LEFT_W - 2 * theme.GAP)
+                split.setSizes([LEFT_W, int(rest * 0.4), int(rest * 0.6)])
+            QTimer.singleShot(0, share)
+        self.body.addWidget(split, 1)
         self._show_compare()
 
         self._refresh_engine_status()
         self._update_buttons()
+        if self.mode.currentData() == "library":
+            self._set_groups(load_library_results())  # results of videos checked earlier
 
     # ---------- small helpers ----------
     def _show_mode(self, index):
@@ -499,6 +561,7 @@ class DuplicatesPage(Page):
         settings.save({
             "dup_options": {
                 "mode": self.mode.currentData(), "recursive": self.recursive.isChecked(),
+                "one_by_one": self.one_by_one.isChecked(),
                 "percent": self.percent.value(), "audio": self.audio.isChecked(),
                 "audio_ratio": self.audio_ratio.value(), "audio_similarity": self.audio_sim.value(),
                 "visual": self.visual.isChecked(), "visual_hit": self.visual_hit.value(),
@@ -541,14 +604,70 @@ class DuplicatesPage(Page):
     def _add_files(self):
         start = self.library.text() or ""
         paths, _ = QFileDialog.getOpenFileNames(self, "Choose video files", start, VIDEO_FILTER)
-        present = {self.files.item(i).text() for i in range(self.files.count())}
+        present = set(self._file_paths())
         for path in paths:
             if path not in present:
-                self.files.addItem(path)
+                self._add_file_item(path)
+        self._save_file_list()
 
     def _remove_files(self):
         for item in self.files.selectedItems():
             self.files.takeItem(self.files.row(item))
+        self._save_file_list()
+
+    def _add_file_item(self, path, matches=None):
+        item = QListWidgetItem()
+        item.setData(Qt.UserRole, path)
+        item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+        self.files.addItem(item)
+        self._show_file_state(item, matches)
+
+    def _show_file_state(self, item, matches):
+        """Ticked = still to check. A checked video is unticked and shows how many matches it had."""
+        path = item.data(Qt.UserRole)
+        item.setData(FILE_DONE, matches)
+        item.setToolTip(path)
+        name = Path(path).name
+        if matches is None:
+            item.setText(name)
+            item.setCheckState(Qt.Checked)
+            item.setForeground(QColor(theme.TEXT))
+        else:
+            item.setText(f"{name}  \u00b7  {matches} match{'es' if matches != 1 else ''}")
+            item.setCheckState(Qt.Unchecked)
+            item.setForeground(QColor(theme.MUTED))
+
+    def _file_items(self):
+        return [self.files.item(i) for i in range(self.files.count())]
+
+    def _file_paths(self):
+        return [item.data(Qt.UserRole) for item in self._file_items()]
+
+    def _save_file_list(self):
+        done = {item.data(Qt.UserRole): item.data(FILE_DONE) for item in self._file_items()
+                if item.data(FILE_DONE) is not None}
+        settings.save({"dup_last_files": self._file_paths(), "dup_files_done": done})
+
+    def _check_all_again(self):
+        for item in self._file_items():
+            self._show_file_state(item, None)
+        self._save_file_list()
+        save_library_results([])
+        self._set_groups([])
+
+    def _file_checked(self, path, groups):
+        """One video is done: show its matches with the others and mark it as checked."""
+        ignored = settings.load().get("dup_ignored", [])
+        groups = de.filter_ignored(groups, ignored)
+        merged = {g["key"]: g for g in self.groups}
+        for g in groups:
+            merged[g["key"]] = g
+        self._set_groups(list(merged.values()))
+        for item in self._file_items():
+            if item.data(Qt.UserRole) == path:
+                self._show_file_state(item, len(groups))
+        self._save_file_list()
+        save_library_results(self.groups)
 
     # ---------- engine ----------
     def _refresh_engine_status(self):
@@ -567,6 +686,7 @@ class DuplicatesPage(Page):
         self.running = busy
         self.scan_btn.setEnabled(not busy)
         self.cancel_btn.setEnabled(busy)
+        self.pause_btn.setEnabled(busy and self.state is not None)
         self.install_btn.setEnabled(not busy)
         self.update_btn.setEnabled(not busy)
         self.ffmpeg_btn.setEnabled(not busy)
@@ -639,16 +759,23 @@ class DuplicatesPage(Page):
             targets = (folder,)
             settings.save({"dup_last_folder": folder})
         else:
-            files = [self.files.item(i).text() for i in range(self.files.count())]
+            files = [item.data(Qt.UserRole) for item in self._file_items() if item.checkState() == Qt.Checked]
             library = self.library.text().strip()
-            if not files:
+            if not self._file_items():
                 self.app.log("ERROR: add at least one video to check.")
+                return
+            if not files:
+                self.app.log("ERROR: every video on the list has been checked. Tick the ones to check again, "
+                             "or use Check all again.")
                 return
             if not Path(library).is_dir():
                 self.app.log("ERROR: choose the library folder.")
                 return
-            targets = (files, library)
-            settings.save({"dup_last_library": library, "dup_last_files": files})
+            targets = (files, library, self.one_by_one.isChecked())
+            settings.save({"dup_last_library": library})
+            self._save_file_list()
+            if not any(item.data(FILE_DONE) is not None for item in self._file_items()):
+                self._set_groups([])  # a fresh check; otherwise earlier results stay and new ones join them
         cfg = self._options()
         self._save_choices()
         self.state = de.ScanState()
@@ -656,39 +783,98 @@ class DuplicatesPage(Page):
         self.app.run_background(self._scan_job, mode, targets, cfg, engine, self.state)
 
     def _scan_job(self, mode, targets, cfg, engine, state, log, progress):
+        def stage_progress(done, total, stage, *_):
+            # The engine counts each stage (hashing, comparing...) from zero and does not say how many
+            # stages are left, so only the elapsed time is shown, not a time remaining.
+            progress(done, total, stage, eta=False)
+
         try:
             db = de.data_dir() / "fingerprints.db"
             if mode == "folder":
                 out = de.data_dir() / "last_scan.json"
                 cmd = de.build_command(engine, [targets[0]], cfg, db, out)
-                code = de.run_engine(cmd, state, log, progress)
+                code = de.run_engine(cmd, state, log, stage_progress)
                 if state.cancelled:
-                    log("Scan cancelled.")
+                    log("Scan stopped. Fingerprints made so far are saved, so scanning again continues from there.")
                     return
                 if code != 0 or not out.exists():
                     raise RuntimeError(f"The engine stopped with code {code}. See the lines above.")
-                groups = de.read_results(out)
-            else:
-                files, library = targets
-                groups = de.check_files_against_library(files, library, cfg, state, log, progress, db)
-                if state.cancelled:
-                    log("Check cancelled.")
-                    return
-            ignored = settings.load().get("dup_ignored", [])
-            groups = de.filter_ignored(groups, ignored)
+                groups = de.filter_ignored(de.read_results(out), settings.load().get("dup_ignored", []))
+                log(f"Found {len(groups)} group(s) of duplicates.")
+                self.app.on_main(lambda: self._set_groups(groups))
+                return
+
+            files, library, one_by_one = targets
+            if one_by_one:
+                self._library_one_by_one(files, library, cfg, state, log, progress, db)
+                return
+            groups = de.check_files_against_library(files, library, cfg, state, log, stage_progress, db)
+            if state.cancelled:
+                log("Check stopped. Fingerprints made so far are saved, so checking again continues from there.")
+                return
             log(f"Found {len(groups)} group(s) of duplicates.")
-            self.app.on_main(lambda: self._set_groups(groups))
+            by_file = {path: [g for g in groups if any(de._normal(i["path"]) == de._normal(path)
+                                                       for i in g["items"])] for path in files}
+            for path in files:
+                self.app.on_main(lambda p=path, g=by_file[path]: self._file_checked(p, g))
         finally:
             self.app.on_main(self._scan_done)
 
+    def _library_one_by_one(self, files, library, cfg, state, log, progress, db):
+        """Check each video on its own and show its results as soon as it is done."""
+        total = len(files)
+        timings = []                 # seconds each finished video took (paused time not counted)
+        started = [self.app._elapsed()]
+
+        def file_progress(done, stage_total, stage, index):
+            within = done / stage_total if stage_total else 0.0
+            overall = (index + within) / total
+            eta = False
+            if timings:
+                # The first video also fingerprints the library, so later videos are a better guide.
+                sample = timings[1:] or timings
+                eta = sum(sample) / len(sample) * (total - index - within)
+            progress(done, stage_total, f"Video {index + 1} of {total} \u00b7 {stage}", overall=overall, eta=eta)
+
+        def file_done(path, groups):
+            now = self.app._elapsed()
+            timings.append(now - started[0])
+            started[0] = now
+            log(f"{Path(path).name}: {len(groups)} group(s) of matches.")
+            self.app.on_main(lambda: self._file_checked(path, groups))
+
+        de.check_files_one_by_one(files, library, cfg, state, log, file_progress, db, file_done)
+        if state.cancelled:
+            log(f"Check stopped after {len(timings)} of {total} video(s). Their results are shown; "
+                "the rest stay ticked, so Scan checks them next time.")
+        else:
+            log(f"Checked all {total} video(s).")
+
     def _scan_done(self):
         self.state = None
+        self.app.pause_clock(False)
+        self.pause_btn.setText("Pause")
         self._set_busy(False)
 
     def _cancel(self):
         if self.state:
-            self.app.log("Cancelling...")
+            self.app.log("Stopping...")
+            self.app.pause_clock(False)
             self.state.cancel()
+
+    def _toggle_pause(self):
+        if not self.state:
+            return
+        if self.state.paused:
+            self.state.resume()
+            self.app.pause_clock(False)
+            self.pause_btn.setText("Pause")
+            self.app.log("Continued.")
+        else:
+            self.state.pause()
+            self.app.pause_clock(True)
+            self.pause_btn.setText("Continue")
+            self.app.log("Paused. Keep the app open; click Continue to carry on.")
 
     def _set_groups(self, groups):
         self.groups = groups

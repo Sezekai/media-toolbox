@@ -9,12 +9,15 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QHBoxLayout, QLabel, QMessa
 
 import gif_maker
 import icons
+import settings
 import theme
-from media_utils import find_videos, probe_duration
+from media_utils import find_videos, probe_video
 from widgets import (ElidedLabel, Page, add_folder, button, card, divider, label, line_edit, make_tree, muted, remember,
                      results_bar, results_panel, tool_row, toolbar)
 
 MIN_CLIP = 0.1  # shortest allowed timeframe, in seconds
+FPS_MIN, FPS_MAX = 1, 60.0       # GIF frame rate limits
+WIDTH_MIN, WIDTH_MAX = 64, 3840  # GIF width limits, in pixels
 ITEM_PATH = Qt.UserRole
 
 
@@ -125,10 +128,12 @@ class VideoItem(QTreeWidgetItem):
 
     def __init__(self, path, folder):
         self.name = str(path.relative_to(folder))
-        super().__init__([self.name, "", "whole video"])
+        super().__init__([self.name, "", "whole video", ""])
         self.path = str(path)
         self.seconds = None   # length of the video, once read
         self.clip = None      # (start, end) when a timeframe is set
+        self.info = {}        # the video's own frame rate and size, once read
+        self.own = None       # (fps, width) set for this video only, or None to follow the setting
         self.setData(0, ITEM_PATH, self.path)
 
     def _sort_key(self, column):
@@ -136,6 +141,8 @@ class VideoItem(QTreeWidgetItem):
             return self.name.casefold()
         if column == 1:
             return self.seconds if self.seconds is not None else -1.0
+        if column == 3:
+            return self.text(3)
         return (0, 0.0) if self.clip is None else (1, self.clip[0])  # whole video first, then clips
 
     def __lt__(self, other):
@@ -190,6 +197,18 @@ class GifTab(Page):
         self.recursive.setChecked(True)
         self.fps = line_edit("12", width=48)
         self.width_px = line_edit("480", width=60)
+        self.fps_label, self.width_label, self.px_label = muted("FPS"), muted("Width"), muted("px")
+        self.size_mode = QComboBox()
+        self.size_mode.addItem("Match each video", "match")
+        self.size_mode.addItem("Same for all", "fixed")
+        self.size_mode.setToolTip("Match each video: every GIF keeps its video's frame rate and width.\n"
+                                  "Same for all: every GIF uses the FPS and width set here.\n"
+                                  "Either way, any video can be given its own values in the Timeframe panel.")
+        saved_mode = settings.load().get("gif_size_mode", "match")
+        self.size_mode.setCurrentIndex(0 if saved_mode == "match" else 1)
+        self.size_mode.currentIndexChanged.connect(self._size_mode_changed)
+        for edit in (self.fps, self.width_px):
+            edit.editingFinished.connect(self._refresh_outputs)
         self.quality = QComboBox()
         self.quality.addItems(list(gif_maker.QUALITY_PRESETS))
         self.out_dir = line_edit(placeholder="Empty = beside each video")
@@ -218,12 +237,13 @@ class GifTab(Page):
         opts = tool_row()
         add_folder(opts, "Save GIFs to", self.out_dir, "Save GIFs to...")
         opts.addWidget(divider())
-        opts.addWidget(muted("FPS"))
+        opts.addWidget(self.size_mode)
+        opts.addWidget(self.fps_label)
         opts.addWidget(self.fps)
         opts.addSpacing(4)
-        opts.addWidget(muted("Width"))
+        opts.addWidget(self.width_label)
         opts.addWidget(self.width_px)
-        opts.addWidget(muted("px"))
+        opts.addWidget(self.px_label)
         opts.addSpacing(4)
         opts.addWidget(muted("Quality"))
         opts.addWidget(self.quality)
@@ -240,7 +260,7 @@ class GifTab(Page):
         self.list_summary = ElidedLabel("Load a folder, then click a video to set its clip.")
         pv.addLayout(results_bar(self.list_summary, self._button("Select all", self.select_all),
                                  self._button("Clear timeframes", self.clear_selected_ranges)))
-        self.tree = make_tree(("File", "Length", "Timeframe"), (200, 70, 110))
+        self.tree = make_tree(("File", "Length", "Timeframe", "GIF"), (180, 64, 100, 148))
         self.tree.setSortingEnabled(True)  # click a heading to sort by it, click again to reverse
         self.tree.sortByColumn(0, Qt.AscendingOrder)
         remember("gif_tree", self.tree, header=True)
@@ -288,6 +308,25 @@ class GifTab(Page):
         controls.addWidget(self.length_label)
         ev.addLayout(controls)
 
+        own = tool_row()
+        self.own_fps = line_edit(width=56)
+        self.own_width = line_edit(width=64)
+        for edit in (self.own_fps, self.own_width):
+            edit.returnPressed.connect(self._apply_own)
+            edit.editingFinished.connect(self._apply_own)
+        self.own_note = ElidedLabel("")
+        reset_own = button("Use setting")
+        reset_own.setToolTip("Forget this video's own FPS and width and follow the setting in the bar above")
+        reset_own.clicked.connect(self._clear_own)
+        own.addWidget(muted("FPS"))
+        own.addWidget(self.own_fps)
+        own.addWidget(muted("Width"))
+        own.addWidget(self.own_width)
+        own.addWidget(muted("px"))
+        own.addWidget(reset_own)
+        own.addWidget(self.own_note, 1)
+        ev.addLayout(own)
+
         previews = QHBoxLayout()
         previews.setSpacing(theme.GAP)
         self.start_view = Preview()
@@ -302,6 +341,7 @@ class GifTab(Page):
         split.setStretchFactor(1, 1)
         remember("gif_split", split)  # the panels share the width evenly unless you have dragged them
         self.body.addWidget(split, 1)
+        self._size_mode_changed()  # grey out FPS and width when each video's own are used
 
     def _button(self, text, command, kind="secondary", icon=None):
         b = button(text, kind, icon)
@@ -346,11 +386,17 @@ class GifTab(Page):
         """Read every video's length in the background, so the Length column fills in by itself."""
         def worker():
             for iid in paths:
-                seconds = probe_duration(iid)
-                self.app.on_main(lambda iid=iid, seconds=seconds: self._set_duration(iid, seconds))
+                info = probe_video(iid)
+                self.app.on_main(lambda iid=iid, info=info: self._set_info(iid, info))
             self.app.on_main(lambda: self.app.log("Finished reading video lengths."))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _set_info(self, iid, info):
+        if iid in self.items:
+            self.items[iid].info = info
+            self._refresh_outputs()
+        self._set_duration(iid, info.get("duration"))
 
     def _set_duration(self, iid, seconds):
         if iid not in self.items:
@@ -387,10 +433,10 @@ class GifTab(Page):
             return
 
         def worker():
-            seconds = probe_duration(iid)
+            info = probe_video(iid)
 
             def done():
-                self._set_duration(iid, seconds)
+                self._set_info(iid, info)
                 if iid in self.durations:
                     then()
             self.app.on_main(done)
@@ -402,6 +448,7 @@ class GifTab(Page):
             return
         duration = self.durations[iid]
         self.editor_hint.setText(Path(iid).name)
+        self._show_own(iid)
         start, end = self.ranges.get(iid, (0.0, duration))
         self.timeline.set_range(duration, start, end)
         self._update_labels(start, end)
@@ -414,6 +461,9 @@ class GifTab(Page):
         self.end_edit.setText("")
         self.length_label.setText("")
         self.editor_hint.setText("Click a video in the list to set its clip.")
+        self.own_fps.setText("")
+        self.own_width.setText("")
+        self.own_note.setText("")
         self.start_view.show_message("No video selected")
         self.end_view.show_message("No video selected")
 
@@ -523,22 +573,99 @@ class GifTab(Page):
         if not rows:
             QMessageBox.information(self, "Nothing selected", "Select one or more videos first, or use Convert all.")
             return
-        try:
-            fps = int(self.fps.text())
-            width = int(self.width_px.text())
-        except ValueError:
-            QMessageBox.critical(self, "Invalid settings", "FPS and width must be whole numbers.")
-            return
-        if not (1 <= fps <= 60) or not (64 <= width <= 1920):
-            QMessageBox.critical(self, "Invalid settings", "FPS must be 1 to 60, and width 64 to 1920 pixels.")
+        if self._fixed_settings() is None:
+            QMessageBox.critical(self, "Invalid settings", f"FPS must be {FPS_MIN} to {FPS_MAX:g}, and width "
+                                 f"{WIDTH_MIN} to {WIDTH_MAX} pixels.")
             return
         out_dir = self.out_dir.text().strip() or None
         jobs = []
         for row in rows:
             iid = row.data(0, ITEM_PATH)
-            if iid in self.ranges:
-                start, end = self.ranges[iid]
-                jobs.append((Path(iid), start, end))
-            else:
-                jobs.append((Path(iid), 0.0, None))
-        self.app.run_background(gif_maker.convert_batch, jobs, fps, width, self.quality.currentText(), out_dir)
+            fps, width = self._settings_for(row)
+            start, end = self.ranges.get(iid, (0.0, None))
+            jobs.append((Path(iid), start, end, fps, width))
+        self.app.run_background(gif_maker.convert_batch, jobs, self.quality.currentText(), out_dir)
+
+    # ---------- frame rate and width, for all videos or for one ----------
+    def _fixed_settings(self):
+        """(fps, width) from the bar above, or None if they are not valid numbers."""
+        try:
+            fps, width = float(self.fps.text()), int(self.width_px.text())
+        except ValueError:
+            return None
+        if not (FPS_MIN <= fps <= FPS_MAX) or not (WIDTH_MIN <= width <= WIDTH_MAX):
+            return None
+        return fps, width
+
+    def _settings_for(self, row):
+        """The (fps, width) a video's GIF will use: its own values, its video's, or the bar's."""
+        if row.own:
+            return row.own
+        fixed = self._fixed_settings() or (12.0, 480)
+        if self.size_mode.currentData() == "match":
+            fps = row.info.get("fps")
+            width = row.info.get("width")
+            fps = round(min(max(fps, FPS_MIN), FPS_MAX), 2) if fps else fixed[0]
+            width = min(max(width, WIDTH_MIN), WIDTH_MAX) if width else fixed[1]
+            return fps, width
+        return fixed
+
+    def _output_text(self, row):
+        fps, width = self._settings_for(row)
+        text = f"{fps:g} fps \u00b7 {width} px"
+        return text + " (own)" if row.own else text
+
+    def _refresh_outputs(self):
+        for row in self.items.values():
+            row.setText(3, self._output_text(row))
+        if self.current in self.items:
+            self._show_own(self.current)
+
+    def _size_mode_changed(self):
+        fixed = self.size_mode.currentData() == "fixed"
+        for widget in (self.fps_label, self.fps, self.width_label, self.width_px, self.px_label):
+            widget.setEnabled(fixed)
+        settings.save({"gif_size_mode": self.size_mode.currentData()})
+        self._refresh_outputs()
+
+    def _show_own(self, iid):
+        row = self.items.get(iid)
+        if row is None:
+            return
+        fps, width = self._settings_for(row)
+        self.own_fps.setText(f"{fps:g}")
+        self.own_width.setText(str(width))
+        source = row.info
+        if row.own:
+            note = "Own values for this video."
+        elif self.size_mode.currentData() == "match" and source.get("fps"):
+            note = f"From the video ({source['fps']:.3g} fps, {source.get('width')}x{source.get('height')})."
+        else:
+            note = "From the setting above."
+        self.own_note.setText(note)
+
+    def _apply_own(self):
+        row = self.items.get(self.current)
+        if row is None:
+            return
+        try:
+            fps, width = float(self.own_fps.text()), int(self.own_width.text())
+        except ValueError:
+            self._show_own(self.current)
+            return
+        if not (FPS_MIN <= fps <= FPS_MAX) or not (WIDTH_MIN <= width <= WIDTH_MAX):
+            self.app.log(f"FPS must be {FPS_MIN} to {FPS_MAX:g}, and width {WIDTH_MIN} to {WIDTH_MAX} pixels.")
+            self._show_own(self.current)
+            return
+        if (fps, width) == self._settings_for(row) and not row.own:
+            return  # nothing changed
+        row.own = (fps, width)
+        row.setText(3, self._output_text(row))
+        self._show_own(self.current)
+
+    def _clear_own(self):
+        row = self.items.get(self.current)
+        if row is not None:
+            row.own = None
+            row.setText(3, self._output_text(row))
+            self._show_own(self.current)
