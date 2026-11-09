@@ -1,14 +1,14 @@
-"""Shared building blocks: cards, buttons, folder rows, tables, the page layout and thread-safe UI calls."""
-from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, Signal
-from PySide6.QtWidgets import (QFileDialog, QFrame, QHBoxLayout, QLayout, QLabel, QLineEdit, QPushButton, QSizePolicy,
-                               QHeaderView, QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator, QVBoxLayout, QWidget)
-
+"""Shared building blocks (DESIGN.md, "Components"): buttons, fields, segmented controls, tags, banners, empty
+states, toolbars, panels, tick-aware lists, the page layout, remembered sizes and thread-safe UI calls."""
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QTimer
+from PySide6.QtCore import QByteArray, QObject, QPoint, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtWidgets import (QButtonGroup, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QLayout,
+                               QLineEdit, QPushButton, QSizePolicy, QStyledItemDelegate, QTreeWidget, QTreeWidgetItem,
+                               QTreeWidgetItemIterator, QVBoxLayout, QWidget)
 
-
+import icons
 import settings
 import theme
 
@@ -19,22 +19,10 @@ class Bridge(QObject):
 
     def __init__(self):
         super().__init__()
-        self.call.connect(self._run)
-
-    def _run(self, fn):
-        try:
-            fn()
-        except RuntimeError:
-            pass  # the page it was for was rebuilt (for example, after an appearance change)
+        self.call.connect(lambda fn: fn())
 
 
-def card():
-    """A panel: the dark surface that holds one part of a page."""
-    frame = QFrame()
-    frame.setObjectName("panel")
-    return frame
-
-
+# ----- text -----
 def label(text="", role="body", wrap=False):
     w = QLabel(text)
     w.setProperty("role", role)
@@ -46,101 +34,201 @@ def muted(text, wrap=False):
     return label(text, "muted", wrap)
 
 
-def empty_state(text):
-    """Centred, quiet text for an empty list or panel."""
-    w = label(text, "empty", wrap=True)
+def caption(text, wrap=False):
+    return label(text, "caption", wrap)
+
+
+def tag(text, kind="acc"):
+    """A 20 px round status label: kind is acc, ok, warn, danger or plain."""
+    w = QLabel(text)
+    w.setProperty("tag", kind)
     w.setAlignment(Qt.AlignCenter)
     return w
+
+
+def set_tag(widget, text, kind):
+    widget.setText(text)
+    widget.setProperty("tag", kind)
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
+
+
+def repolish(widget):
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
 
 
 class ElidedLabel(QLabel):
     """One line of text that shortens with "..." instead of pushing the window wider."""
 
-    def __init__(self, text="", role="muted"):
+    def __init__(self, text="", role="muted", mode=Qt.ElideRight):
         super().__init__(text)
         self.setProperty("role", role)
         self._full = text
+        self._mode = mode
         self.setToolTip(text)
         self.setMinimumWidth(1)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
 
     def setText(self, text):
         self._full = text
-        self.setToolTip(text)
+        self.setToolTip(text if len(text) > 30 else "")
         self._elide()
+
+    def text_full(self):
+        return self._full
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._elide()
 
     def _elide(self):
-        shown = self.fontMetrics().elidedText(self._full, Qt.ElideRight, max(1, self.contentsRect().width()))
+        shown = self.fontMetrics().elidedText(self._full, self._mode, max(1, self.contentsRect().width()))
         QLabel.setText(self, shown)
 
 
-def button(text, kind="secondary", icon=None):
+# ----- controls -----
+def button(text, kind="secondary", icon=None, tip=""):
+    """kind: primary (one per toolbar), secondary, ghost, danger-ghost, danger (only in dialogs)."""
     b = QPushButton(text)
     b.setProperty("kind", kind)
     b.setCursor(Qt.CursorShape.PointingHandCursor)
+    b.setFocusPolicy(Qt.TabFocus)  # the focus ring shows when moving with Tab, not after every click
     if icon is not None:
         b.setIcon(icon)
-        b.setIconSize(QSize(16, 16))
+        b.setIconSize(QSize(theme.ICON, theme.ICON))
+    if tip:
+        b.setToolTip(tip)
+    if kind == "primary":
+        theme.set_glow(b)
     return b
 
 
-def line_edit(text="", placeholder="", width=None):
+def set_kind(b, kind):
+    b.setProperty("kind", kind)
+    repolish(b)
+    theme.set_glow(b) if kind == "primary" else b.setGraphicsEffect(None)
+
+
+def line_edit(text="", placeholder="", width=None, mono=False):
     e = QLineEdit(text)
     e.setPlaceholderText(placeholder)
     if width:
         e.setFixedWidth(width)
+    if mono:
+        e.setObjectName("mono")
     return e
 
 
-def make_tree(headers, widths):
-    """A list whose first column takes the spare width, so the list never scrolls sideways.
-    The other columns keep their width and can be dragged wider or narrower."""
-    tree = QTreeWidget()
-    tree.setHeaderLabels(list(headers))
-    tree.setRootIsDecorated(False)
-    tree.setUniformRowHeights(True)
-    tree.setSelectionMode(QTreeWidget.ExtendedSelection)
-    tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-    tree.header().setStretchLastSection(False)
-    tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
-    tree.header().setMinimumSectionSize(60)
-    tree.header().setHighlightSections(False)
-    for i, width in enumerate(widths):
-        tree.setColumnWidth(i, width)
-    return tree
+class Segmented(QFrame):
+    """A field-coloured track with buttons; the chosen one is raised. Counts sit faint after the label."""
+    changed = Signal(object)
+
+    def __init__(self, options, value=None):
+        """options: [(value, label)]."""
+        super().__init__()
+        self.setObjectName("seg")
+        h = QHBoxLayout(self)
+        h.setContentsMargins(2, 2, 2, 2)
+        h.setSpacing(2)
+        self.group = QButtonGroup(self)
+        self.group.setExclusive(True)
+        self.buttons = {}
+        self.labels = {}
+        for key, text in options:
+            b = QPushButton(text)
+            b.setObjectName("segbtn")
+            b.setCheckable(True)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setFocusPolicy(Qt.TabFocus)
+            b.clicked.connect(lambda _c=False, k=key: self._pick(k))
+            self.group.addButton(b)
+            h.addWidget(b)
+            self.buttons[key] = b
+            self.labels[key] = text
+        self._value = None
+        self.set_value(value if value is not None else options[0][0], emit=False)
+
+    def _pick(self, key):
+        if key != self._value:
+            self._value = key
+            self.changed.emit(key)
+
+    def value(self):
+        return self._value
+
+    def set_value(self, key, emit=False):
+        if key in self.buttons:
+            self.buttons[key].setChecked(True)
+            changed = key != self._value
+            self._value = key
+            if emit and changed:
+                self.changed.emit(key)
+
+    def set_count(self, key, count):
+        """"Not done 8": the count shows after the label."""
+        if key in self.buttons:
+            self.buttons[key].setText(self.labels[key] if count is None else f"{self.labels[key]}  {count}")
 
 
-def pick_folder(edit, title):
-    chosen = QFileDialog.getExistingDirectory(edit, title, edit.text().strip())
-    if chosen:
-        edit.setText(chosen)
-        return True
-    return False
+def field_label(text):
+    w = muted(text)
+    w.setFixedWidth(theme.LABEL_W)
+    return w
 
 
-def folder_row(grid, row, text, edit, title, on_change=None):
-    """Label, path box and Browse button on one row of a QGridLayout (the path box stretches)."""
-    grid.addWidget(muted(text), row, 0)
-    grid.addWidget(edit, row, 1)
+def divider(height=18):
+    """A thin upright line between groups in a toolbar row."""
+    line = QFrame()
+    line.setObjectName("divider")
+    line.setFixedSize(1, height)
+    return line
+
+
+def hline():
+    line = QFrame()
+    line.setObjectName("divider")
+    line.setFixedHeight(1)
+    return line
+
+
+def pick_folder(parent, title, start=""):
+    return QFileDialog.getExistingDirectory(parent, title, start or "")
+
+
+def add_folder(row, text, edit, title, on_change=None, stretch=1):
+    """Label, path box and Browse button, added to a toolbar row."""
+    if text:
+        row.addWidget(field_label(text))
+    edit.setMinimumWidth(120)
+    row.addWidget(edit, stretch)
     browse = button("Browse")
 
     def go():
-        if pick_folder(edit, title) and on_change:
-            on_change()
+        chosen = pick_folder(edit, title, edit.text().strip())
+        if chosen:
+            edit.setText(chosen)
+            if on_change:
+                on_change()
 
     browse.clicked.connect(go)
-    grid.addWidget(browse, row, 2)
+    row.addWidget(browse)
     return browse
 
 
-def toolbar():
-    """The bar across the top of a tool: folders, options and the main button. Returns (frame, rows layout)."""
+# ----- panels -----
+def panel(name="panel"):
     frame = QFrame()
-    frame.setObjectName("toolbar")
+    frame.setObjectName(name)
+    return frame
+
+
+card = panel
+
+
+def toolbar():
+    """The toolbar panel: row one holds the main input and the main action, row two its settings."""
+    frame = panel("toolbar")
     rows = QVBoxLayout(frame)
     rows.setContentsMargins(theme.PAD, theme.PAD - 2, theme.PAD, theme.PAD - 2)
     rows.setSpacing(theme.GAP - 2)
@@ -154,78 +242,260 @@ def tool_row():
     return row
 
 
-FIELD_LABEL_W = 88  # labels in front of fields share one width, so the fields line up
+def wrap_row():
+    """A toolbar row that wraps onto a second line on narrow windows instead of scrolling sideways."""
+    host = QWidget()
+    flow = FlowLayout(host, spacing=theme.GAP, vspacing=theme.GAP - 2, align_center=True)
+    return host, flow
 
 
-def field_label(text):
-    w = muted(text)
-    w.setFixedWidth(FIELD_LABEL_W)
-    return w
-
-
-def add_folder(row, text, edit, title, on_change=None, stretch=1):
-    """Label, path box and Browse button, added to a tool bar row."""
-    if text:
-        row.addWidget(field_label(text))
-    edit.setMinimumWidth(120)
-    row.addWidget(edit, stretch)
-    browse = button("Browse")
-
-    def go():
-        if pick_folder(edit, title) and on_change:
-            on_change()
-
-    browse.clicked.connect(go)
-    row.addWidget(browse)
-    return browse
-
-
-def divider():
-    """A thin upright line between groups in a tool bar row."""
-    line = QFrame()
-    line.setObjectName("divider")
-    line.setFixedSize(1, 18)
-    return line
-
-
-def results_bar(summary, *buttons):
-    """The line above a results list: a summary on the left, the list's actions on the right."""
+def results_bar(summary, *widgets):
+    """The summary line over a work area: the summary on the left, filters, views and buttons on the right."""
     row = QHBoxLayout()
     row.setContentsMargins(0, 0, 0, 0)
     row.setSpacing(theme.GAP - 2)
     row.addWidget(summary, 1)
-    for b in buttons:
-        row.addWidget(b)
+    for w in widgets:
+        if w is None:
+            row.addSpacing(theme.GAP)
+        else:
+            row.addWidget(w)
     return row
 
 
 def results_panel():
-    """The panel that holds a results list and fills the rest of the page. Returns (frame, layout)."""
-    frame = card()
+    """The panel that holds a work area and fills the rest of the page. Returns (frame, layout)."""
+    frame = panel()
     v = QVBoxLayout(frame)
     v.setContentsMargins(theme.PAD, theme.PAD - 2, theme.PAD, theme.PAD)
     v.setSpacing(theme.GAP - 2)
     return frame, v
 
 
+class Banner(QFrame):
+    """One line: an icon, a bold lead, a sentence and one button. For "needs setting up first" states."""
+
+    def __init__(self, lead, sentence, action_text=None, action=None, icon_name="info"):
+        super().__init__()
+        self.setObjectName("banner")
+        h = QHBoxLayout(self)
+        h.setContentsMargins(theme.PAD, 6, 6, 6)
+        h.setSpacing(theme.GAP)
+        self.icon = QLabel()
+        self.icon.setPixmap(icons.pixmap(icon_name, theme.ACCENT, 16))
+        h.addWidget(self.icon)
+        self.lead = label(lead, "heading")
+        h.addWidget(self.lead)
+        self.text = ElidedLabel(sentence)
+        h.addWidget(self.text, 1)
+        self.button = None
+        if action_text:
+            self.button = button(action_text)
+            if action:
+                self.button.clicked.connect(action)
+            h.addWidget(self.button)
+
+    def set(self, lead, sentence, action_text=None):
+        self.lead.setText(lead)
+        self.text.setText(sentence)
+        if self.button is not None and action_text:
+            self.button.setText(action_text)
+
+
+class EmptyState(QWidget):
+    """A 28 px faint icon, one sentence on what goes here, and the button that fills it."""
+
+    def __init__(self, icon_name, sentence, action_text=None, action=None):
+        super().__init__()
+        v = QVBoxLayout(self)
+        v.setAlignment(Qt.AlignCenter)
+        v.setSpacing(10)
+        self.icon = QLabel()
+        self.icon.setAlignment(Qt.AlignCenter)
+        self._icon_name = icon_name
+        self.icon.setPixmap(icons.pixmap(icon_name, theme.FAINT, 28))
+        v.addWidget(self.icon)
+        self.text = label(sentence, "empty", wrap=True)
+        self.text.setAlignment(Qt.AlignCenter)
+        self.text.setMaximumWidth(420)
+        v.addWidget(self.text, 0, Qt.AlignCenter)
+        self.button = None
+        if action_text:
+            self.button = button(action_text)
+            if action:
+                self.button.clicked.connect(action)
+            v.addWidget(self.button, 0, Qt.AlignCenter)
+        theme.on_change(self._recolour)
+
+    def _recolour(self):
+        try:
+            self.icon.setPixmap(icons.pixmap(self._icon_name, theme.FAINT, 28))
+        except RuntimeError:
+            pass
+
+    def set_text(self, sentence, action_text=None):
+        self.text.setText(sentence)
+        if self.button is not None:
+            self.button.setVisible(bool(action_text))
+            if action_text:
+                self.button.setText(action_text)
+
+
+# ----- lists with tick boxes (DESIGN.md, "Selecting and ticking") -----
+def make_tree(headers, widths, ticks=False):
+    """A table whose first column takes the spare width, so it never scrolls sideways.
+    The other columns keep their width and can be dragged wider or narrower."""
+    tree = QTreeWidget()
+    tree.setHeaderLabels(list(headers))
+    tree.setRootIsDecorated(False)
+    tree.setUniformRowHeights(True)
+    tree.setSelectionMode(QTreeWidget.SingleSelection if ticks else QTreeWidget.ExtendedSelection)
+    tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    tree.setTextElideMode(Qt.ElideMiddle)
+    header = tree.header()
+    header.setStretchLastSection(False)
+    header.setSectionResizeMode(0, QHeaderView.Stretch)
+    header.setMinimumSectionSize(48)
+    header.setHighlightSections(False)
+    for i, width in enumerate(widths):
+        tree.setColumnWidth(i, width)
+    if ticks:
+        Ticking(tree)
+    return tree
+
+
+class TintDelegate(QStyledItemDelegate):
+    """Paints a row's background colour (the tick tint) under the normal item. The style sheet's item rules
+    would otherwise hide it."""
+
+    def paint(self, painter, option, index):
+        bg = index.data(Qt.BackgroundRole)
+        if bg is not None:
+            painter.fillRect(option.rect, bg)
+        super().paint(painter, option, index)
+
+
+class Ticking(QObject):
+    """Adds the suite's ticking to a QTreeWidget: a click selects; Ctrl+click or the tick box ticks;
+    Shift with either ticks the range from the last ticked item; ticked rows get a faint accent tint.
+    With the "click to tick" option, a plain click ticks instead."""
+    ticks_changed = Signal()
+
+    def __init__(self, tree):
+        super().__init__(tree)
+        self.tree = tree
+        self.anchor = None
+        tree.ticking = self
+        self.delegate = TintDelegate(tree)
+        tree.setItemDelegate(self.delegate)
+        tree.viewport().installEventFilter(self)
+        tree.itemChanged.connect(self._changed)
+
+    def eventFilter(self, obj, event):
+        from PySide6.QtCore import QEvent
+        if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            item = self.tree.itemAt(event.position().toPoint())
+            if item is None or not (item.flags() & Qt.ItemIsUserCheckable):
+                return False
+            mods = event.modifiers()
+            click_ticks = settings.load().get("click_ticks", False)
+            if mods & Qt.ShiftModifier and self.anchor is not None:
+                self._tick_range(self.anchor, item)
+                self.tree.setCurrentItem(item)
+                return True
+            if mods & Qt.ControlModifier or click_ticks:
+                self._toggle(item)
+                self.tree.setCurrentItem(item)
+                return True
+        return False
+
+    def _toggle(self, item):
+        item.setCheckState(0, Qt.Unchecked if item.checkState(0) == Qt.Checked else Qt.Checked)
+        self.anchor = item
+
+    def _visible_items(self):
+        it = QTreeWidgetItemIterator(self.tree)
+        out = []
+        while it.value():
+            item = it.value()
+            if not item.isHidden() and item.flags() & Qt.ItemIsUserCheckable:
+                out.append(item)
+            it += 1
+        return out
+
+    def _tick_range(self, a, b):
+        items = self._visible_items()
+        try:
+            i, j = sorted((items.index(a), items.index(b)))
+        except ValueError:
+            return
+        self.tree.blockSignals(True)
+        for item in items[i:j + 1]:
+            item.setCheckState(0, Qt.Checked)
+            self._tint(item)
+        self.tree.blockSignals(False)
+        self.ticks_changed.emit()
+
+    def _changed(self, item, column):
+        if column == 0:
+            self.anchor = item
+            self._tint(item)
+            self.ticks_changed.emit()
+
+    def _tint(self, item):
+        from PySide6.QtGui import QBrush, QColor
+        ticked = item.checkState(0) == Qt.Checked
+        brush = QBrush(QColor(theme.TINT_TICK)) if ticked else QBrush()
+        for c in range(self.tree.columnCount()):
+            item.setBackground(c, brush)
+
+    def retint(self):
+        for item in self._visible_items():
+            self._tint(item)
+
+    def tick_all(self, on=True):
+        self.tree.blockSignals(True)
+        for item in self._visible_items():
+            item.setCheckState(0, Qt.Checked if on else Qt.Unchecked)
+            self._tint(item)
+        self.tree.blockSignals(False)
+        self.ticks_changed.emit()
+
+    def ticked(self):
+        return [i for i in self._visible_items() if i.checkState(0) == Qt.Checked]
+
+
+# ----- the page -----
 class Page(QWidget):
-    """A tool page: a one-line header (title, then what the tool does), then the page content.
-    The content always fits the window; lists scroll inside themselves, the page never scrolls sideways."""
+    """A screen: a one-line header (title, then what it does), then the page content.
+    The content always fits the window; lists scroll inside themselves, the page never scrolls sideways.
+    H hides self.panels (toolbars and side panels) so only the work shows; / focuses self.filter_box."""
     title = ""
     subtitle = ""
+    icon = "logo"
 
     def __init__(self, app):
         super().__init__()
         self.app = app
+        self.panels = []
+        self.filter_box = None
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(theme.GAP)
-        head = QHBoxLayout()
+        self.header = QWidget()
+        head = QHBoxLayout(self.header)
         head.setContentsMargins(2, 0, 0, 0)
         head.setSpacing(12)
         head.addWidget(label(self.title, "title"))
-        head.addWidget(ElidedLabel(self.subtitle), 1)
-        outer.addLayout(head)
+        self.subtitle_label = ElidedLabel(self.subtitle)
+        head.addWidget(self.subtitle_label, 1)
+        self.header_right = QHBoxLayout()
+        self.header_right.setSpacing(theme.GAP)
+        head.addLayout(self.header_right)
+        outer.addWidget(self.header)
+        self.banners = QVBoxLayout()
+        self.banners.setSpacing(theme.GAP)
+        outer.addLayout(self.banners)
 
         self.content = QWidget()
         self.content.setObjectName("page")
@@ -238,15 +508,38 @@ class Page(QWidget):
     def build(self):
         raise NotImplementedError
 
+    def set_panels_hidden(self, hidden):
+        self.header.setVisible(not hidden)
+        for w in self.panels:
+            w.setVisible(not hidden)
 
+    def shown(self):
+        """Called when the page comes on screen."""
+
+    def queue_changed(self, busy):
+        """Called when a job starts or ends, so main buttons can say "Add ... to the queue"."""
+
+    def zoom(self, step):
+        """+ / − and Ctrl+wheel: make whatever is in view bigger or smaller."""
+
+    def tick_all(self):
+        """Ctrl+A: tick everything shown."""
+
+    def step(self, delta):
+        """← → PgUp PgDn: previous / next item. Home / End: first / last (delta = -inf / inf)."""
+
+
+# ----- a layout that wraps -----
 class FlowLayout(QLayout):
-    """Lays widgets out left to right and wraps onto a new row when the width runs out,
-    so a row of cards never needs sideways scrolling; the area scrolls up and down instead."""
+    """Lays widgets out left to right and wraps onto a new row when the width runs out, so rows of cards and
+    toolbar rows never need sideways scrolling."""
 
-    def __init__(self, parent=None, spacing=8):
+    def __init__(self, parent=None, spacing=8, vspacing=None, align_center=False):
         super().__init__(parent)
         self._items = []
         self._spacing = spacing
+        self._vspacing = spacing if vspacing is None else vspacing
+        self._center = align_center
         self.setContentsMargins(0, 0, 0, 0)
 
     def addItem(self, item):
@@ -285,31 +578,44 @@ class FlowLayout(QLayout):
 
     def _arrange(self, rect, move):
         x, y, line_h = rect.x(), rect.y(), 0
+        line = []
         for item in self._items:
+            if item.widget() is not None and item.widget().isHidden():
+                continue
             hint = item.sizeHint()
             if x > rect.x() and x + hint.width() > rect.right() + 1:
-                x, y, line_h = rect.x(), y + line_h + self._spacing, 0
+                if move and self._center:
+                    self._center_line(line, line_h)
+                x, y, line_h, line = rect.x(), y + line_h + self._vspacing, 0, []
             if move:
                 item.setGeometry(QRect(QPoint(x, y), hint))
+                line.append(item)
             x += hint.width() + self._spacing
             line_h = max(line_h, hint.height())
+        if move and self._center:
+            self._center_line(line, line_h)
         return y + line_h - rect.y()
+
+    @staticmethod
+    def _center_line(line, line_h):
+        for item in line:
+            g = item.geometry()
+            item.setGeometry(QRect(g.x(), g.y() + (line_h - g.height()) // 2, g.width(), g.height()))
 
 
 # ----- remembered sizes: splitters and table columns keep the sizes you dragged them to -----
-_remembered = {}   # key -> splitter or table header, for the screen currently shown
+_remembered = {}
 _save_timer = None
 
 
 def reset_remembered():
-    """Forget the widgets of the screen that is being replaced (their sizes are already saved)."""
     _remembered.clear()
 
 
 def remember(key, widget, header=False):
     """Restore the saved size of a splitter (or of a table's columns when header=True), and save it
     whenever it is dragged."""
-    key = "v3:" + key  # sizes saved before the compact redesign are left behind
+    key = "v4:" + key  # sizes saved before version 2 are left behind
     target = widget.header() if header else widget
     _remembered[key] = target
     saved = settings.load().get("layout", {}).get(key)
@@ -319,6 +625,10 @@ def remember(key, widget, header=False):
         target.sectionResized.connect(lambda *_args: _schedule_save())
     else:
         target.splitterMoved.connect(lambda *_args: _schedule_save())
+
+
+def remembered(key):
+    return ("v4:" + key) in settings.load().get("layout", {})
 
 
 def _schedule_save():
@@ -341,44 +651,43 @@ def _save_now():
     settings.save({"layout": layout})
 
 
-# ----- a list of folders with a tick box beside each one -----
+# ----- a list of folders with a tick box beside each one (Zip, Copy folder structure) -----
 REL_PATH = Qt.UserRole
 
 
 class FolderChecklist(QWidget):
     """Lists folders with a tick box on each. Everything starts ticked; untick the ones to leave out."""
+    changed = Signal()
 
-    def __init__(self, title, recursive, key):
+    def __init__(self, title, recursive, key, empty_text, empty_action=None, empty_button=None):
         super().__init__()
         self.recursive = recursive
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(theme.px(8))
-        head = QHBoxLayout()
-        head.setSpacing(theme.px(8))
-        head.addWidget(label(title, "heading"))
-        self.count = muted("")
-        head.addWidget(self.count)
-        head.addStretch(1)
-        all_btn = button("Select all")
+        v.setSpacing(theme.GAP - 2)
+        self.count = ElidedLabel("")
+        all_btn = button("Tick all", "ghost")
         all_btn.clicked.connect(lambda: self._set_all(True))
-        none_btn = button("Select none")
+        none_btn = button("Untick all", "ghost")
         none_btn.clicked.connect(lambda: self._set_all(False))
-        head.addWidget(all_btn)
-        head.addWidget(none_btn)
-        v.addLayout(head)
+        v.addLayout(results_bar(self.count, all_btn, none_btn))
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Folder"])
+        self.tree.setHeaderLabels([title])
         self.tree.setRootIsDecorated(recursive)
         self.tree.setSelectionMode(QTreeWidget.NoSelection)
         self.tree.setUniformRowHeights(True)
+        self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.tree.itemChanged.connect(self._item_changed)
-        remember(key, self.tree, header=True)
         v.addWidget(self.tree, 1)
+        self.empty = EmptyState("folder", empty_text, empty_button, empty_action)
+        v.addWidget(self.empty, 1)
+        self.tree.hide()
 
     def clear(self, message=""):
         self.tree.clear()
         self.count.setText(message)
+        self.tree.hide()
+        self.empty.show()
 
     def load(self, root):
         """List the folders in root (and their subfolders, when recursive)."""
@@ -391,11 +700,16 @@ class FolderChecklist(QWidget):
                 for name in self._subdirs(Path(root)):
                     self._add_row(self.tree, name, name)
         except OSError as exc:
-            self.count.setText(f"Could not read this folder: {exc}")
             self.tree.blockSignals(False)
+            self.clear(f"This folder couldn't be read: {exc}")
             return
         self.tree.blockSignals(False)
         self.tree.expandToDepth(0)
+        has = self.tree.topLevelItemCount() > 0
+        self.tree.setVisible(has)
+        self.empty.setVisible(not has)
+        if not has:
+            self.empty.set_text("This folder has no folders inside it.")
         self._update_count()
 
     def _subdirs(self, folder):
@@ -403,7 +717,7 @@ class FolderChecklist(QWidget):
 
     def _add_children(self, parent, folder, prefix):
         for name in self._subdirs(folder):
-            rel = f"{prefix}{name}" if not prefix else f"{prefix}/{name}"
+            rel = name if not prefix else f"{prefix}/{name}"
             item = self._add_row(parent, name, rel)
             self._add_children(item, folder / name, rel)
 
@@ -412,6 +726,7 @@ class FolderChecklist(QWidget):
         item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
         item.setCheckState(0, Qt.Checked)
         item.setData(0, REL_PATH, rel)
+        item.setIcon(0, icons.icon("folder", theme.FAINT, 16))
         if isinstance(parent, QTreeWidget):
             parent.addTopLevelItem(item)
         else:
@@ -445,10 +760,17 @@ class FolderChecklist(QWidget):
         self.tree.blockSignals(False)
         self._update_count()
 
+    def tick_all(self):
+        self._set_all(True)
+
     def _update_count(self):
         items = list(self._all_items())
         chosen = sum(1 for i in items if i.checkState(0) == Qt.Checked)
-        self.count.setText(f"{chosen} of {len(items)} selected" if items else "No folders here")
+        self.count.setText(f"{chosen} of {len(items)} folders ticked" if items else "No folders here")
+        self.changed.emit()
+
+    def ticked_count(self):
+        return sum(1 for i in self._all_items() if i.checkState(0) == Qt.Checked)
 
     def checked_names(self):
         """Names (or paths relative to the folder, when recursive) of the ticked folders."""

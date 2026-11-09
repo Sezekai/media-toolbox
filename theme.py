@@ -1,91 +1,95 @@
-"""The look of the app: a compact dark theme with one accent colour the user can choose.
+"""Turns the current look (appearance.py) into tokens and a Qt style sheet (DESIGN.md).
 
-Every size comes from the small scale below, so controls, rows and gaps line up on every page."""
+Every colour comes from a token. The accent is a gradient (qlineargradient); its last stop is used where only
+one colour fits (icons, the selected outline). apply() restyles the running app in place, so the Look screen's
+changes show straight away."""
+import math
 import os
-import sys
 import tempfile
 
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette
+from PySide6.QtGui import QColor, QFont, QPalette
 
-# ----- colours -----
-BG = "#111214"          # window ground
-PANEL = "#18191c"       # tool bars, lists' panels, rail, status bar
-RAISED = "#202226"      # buttons, headers
-RAISED_HOVER = "#2a2c31"
-FIELD = "#0d0e10"       # text boxes, lists
-BORDER = "#2a2c31"      # one-pixel hairlines
-TEXT = "#e8eaed"
-MUTED = "#9aa0a8"       # secondary text, about 6.7:1 on PANEL
-FAINT = "#6c727b"       # placeholders and disabled text
-ACCENT = "#4a9eff"      # set by set_accent(); the colours below follow it
-ACCENT_HOVER = "#6fb1ff"
-ON_ACCENT = "#ffffff"   # text and icons on accent buttons
-DANGER = "#e5484d"
-DANGER_HOVER = "#f06569"
-SELECT = "#1d3557"      # selected rows (the accent, darkened)
-SELECT_SOFT = "#182436" # the active tool in the sidebar
-TRACK = "#26282d"       # progress and slider tracks
+import appearance
 
-# Older names used around the app
-GREEN, ON_GREEN, CARD_BORDER = ACCENT, ON_ACCENT, BORDER
+# ----- fixed sizes from DESIGN.md -----
+GAP = 8           # between controls and between panels
+PAD = 10          # inside panels
+PAGE = 12         # around the page
+LABEL_W = 88      # the shared label column in toolbars
+ICON = 16         # icons in controls
+RAIL_ICON = 19    # icons in the rail
 
-DEFAULT_ACCENT = "#4a9eff"
-ACCENT_PRESETS = [  # (name, colour) offered in the accent menu; any other colour can be picked too
-    ("Blue", "#4a9eff"), ("Sky", "#38b6e8"), ("Teal", "#22b3a3"), ("Green", "#3fb950"),
-    ("Lime", "#8cc63f"), ("Amber", "#e0a526"), ("Orange", "#f07a2a"), ("Red", "#e5534b"),
-    ("Pink", "#e5539e"), ("Purple", "#9b6cf0"), ("Indigo", "#6872f0"), ("Slate", "#8b98a9"),
-]
+# ----- tokens, set by use() -----
+THEME = None
+GROUND = RAIL = PANEL = RAISED = RAISED2 = FIELD = LINE = LINE2 = TEXT = SEC = FAINT = STAGE = "#000000"
+OK = WARN = DANGER = "#000000"
+STOPS = ["#b6f05a", "#2fd6b4"]
+ANGLE = 90
+ACCENT = ACC1 = ACC2 = "#2fd6b4"   # ACCENT is the last stop, for icons and outlines
+ON_ACCENT = "#0b0c0f"
+TINT_SELECT = TINT_TICK = TINT_PILL = TINT_HOVER = "#000000"
+FAMILY, MONO = "Inter", "JetBrains Mono"
+FONT_SIZE = 13
+CONTROL_H, ROW_H = 28, 24
+R_CONTROL, R_PANEL = 6, 10
+GLOW = False
+LIGHT = False
+_listeners = []
+
+# names used by older parts of the code
+MUTED = SEC
+CARD_BORDER = BORDER = LINE
+GREEN = ACCENT
+ON_GREEN = ON_ACCENT
+SELECT = SELECT_SOFT = TRACK = RAISED_HOVER = "#000000"
 
 
-def _mix(a, b, t):
-    """Colour a moved t of the way towards colour b."""
+def mix(a, b, t):
+    """Colour a moved t of the way towards b."""
     ca, cb = QColor(a), QColor(b)
     return QColor(round(ca.red() + (cb.red() - ca.red()) * t), round(ca.green() + (cb.green() - ca.green()) * t),
                   round(ca.blue() + (cb.blue() - ca.blue()) * t)).name()
 
 
-def set_accent(colour):
-    """Use a new accent colour everywhere. Call apply(app) afterwards to restyle the open window."""
-    global ACCENT, ACCENT_HOVER, SELECT, SELECT_SOFT, GREEN
-    c = QColor(colour)
-    if not c.isValid():
-        c = QColor(DEFAULT_ACCENT)
-    ACCENT = c.name()
-    ACCENT_HOVER = _mix(ACCENT, "#ffffff", 0.18)
-    SELECT = _mix(ACCENT, PANEL, 0.68)
-    SELECT_SOFT = _mix(ACCENT, PANEL, 0.82)
-    GREEN = ACCENT
+def use(theme):
+    """Make a theme the current one (call apply(app) to restyle the window)."""
+    global THEME, GROUND, RAIL, PANEL, RAISED, RAISED2, FIELD, LINE, LINE2, TEXT, SEC, FAINT, STAGE, OK, WARN, DANGER
+    global STOPS, ANGLE, ACCENT, ACC1, ACC2, ON_ACCENT, TINT_SELECT, TINT_TICK, TINT_PILL, TINT_HOVER
+    global FONT_SIZE, CONTROL_H, ROW_H, R_CONTROL, R_PANEL, GLOW, LIGHT
+    global MUTED, CARD_BORDER, BORDER, GREEN, ON_GREEN, SELECT, SELECT_SOFT, TRACK, RAISED_HOVER
+    t = appearance.normalize(theme)
+    THEME = t
+    bg = t["background"]
+    GROUND, RAIL, PANEL, RAISED, RAISED2 = bg["ground"], bg["rail"], bg["panel"], bg["raised"], bg["raised2"]
+    FIELD, LINE, LINE2, TEXT, SEC, FAINT, STAGE = (bg["field"], bg["line"], bg["line2"], bg["text"], bg["sec"],
+                                                   bg["faint"], bg["stage"])
+    OK, WARN, DANGER = t["states"]["ok"], t["states"]["warn"], t["states"]["danger"]
+    STOPS, ANGLE = t["accent"]["stops"], t["accent"]["angle"]
+    ACC1, ACC2 = STOPS[0], STOPS[-1]
+    ACCENT = ACC2
+    ON_ACCENT = appearance.on_accent(t)
+    TINT_SELECT = mix(FIELD, ACCENT, 0.09)
+    TINT_TICK = mix(FIELD, ACCENT, 0.13)
+    TINT_PILL = mix(PANEL, ACCENT, 0.20)
+    TINT_HOVER = mix(FIELD, TEXT, 0.04)
+    FONT_SIZE = t["font"]["size"]
+    CONTROL_H, ROW_H = t["density"]["control"], t["density"]["row"]
+    R_CONTROL, R_PANEL = t["corners"]["control"], t["corners"]["panel"]
+    GLOW = t["buttons"]["style"] == "glow"
+    LIGHT = appearance.is_light(t)
+    MUTED, CARD_BORDER, BORDER, GREEN, ON_GREEN = SEC, LINE, LINE, ACCENT, ON_ACCENT
+    SELECT, SELECT_SOFT, TRACK, RAISED_HOVER = TINT_TICK, TINT_SELECT, RAISED2, RAISED2
 
-# ----- type -----
-# The fonts the owner can pick from. Each names the weight used for normal text, headings and page titles.
-# Some installs list a font's weights as separate families ("Satoshi Black"), so those names are tried too.
-FONTS = {
-    "Satoshi": {"weights": {"body": 500, "heading": 700, "title": 900},
-                "styles": {500: "Satoshi Medium", 700: "Satoshi Bold", 900: "Satoshi Black"}},
-    "Ubuntu": {"weights": {"body": 400, "heading": 500, "title": 700},
-               "styles": {500: "Ubuntu Medium"}},
-    "Segoe UI": {"weights": {"body": 400, "heading": 600, "title": 700},
-                 "styles": {600: "Segoe UI Semibold"}},
-}
-DEFAULT_FONTS = ("Satoshi", "Ubuntu", "Segoe UI")  # the first one installed is used until the owner picks one
-WANTED_FONT = None   # the owner's pick (None = default order)
-FONT_NAME = "Segoe UI"
-FAMILY = "Segoe UI"  # family for normal text
-ROLE_FONT = {}       # role -> (family, weight)
-MONO = "Ubuntu Mono"
-TEXT_SIZES = {"caption": 12, "body": 13, "heading": 13, "title": 15}
 
-# ----- sizes (pixels) -----
-CONTROL_H = 28   # every button, text box, drop-down and spin box
-ROW_H = 24       # list rows
-GAP = 8          # between controls
-PAD = 10         # inside panels
-R_CONTROL = 5
-R_PANEL = 7
+use(appearance.DEFAULT_THEME)
+
+
+def on_change(fn):
+    """fn() runs after every restyle, e.g. to redraw icons in the new accent."""
+    _listeners.append(fn)
 
 
 def px(n):
-    """Kept for the pages: sizes are fixed, so this is the number itself."""
     return max(0, round(n))
 
 
@@ -94,213 +98,313 @@ def radius(n):
 
 
 def text_px(role="body"):
-    return TEXT_SIZES.get(role, TEXT_SIZES["body"])
+    return {"caption": FONT_SIZE - 1, "body": FONT_SIZE, "heading": FONT_SIZE,
+            "title": FONT_SIZE + 2}.get(role, FONT_SIZE)
+
+
+WEIGHTS = {"body": 400, "caption": 400, "heading": 600, "title": 700, "button": 600}
 
 
 def font(role="body", bold=False):
-    family, weight = ROLE_FONT.get("heading" if bold and role == "body" else role, (FAMILY, 400))
-    f = QFont(family)
+    f = QFont(FAMILY)
     f.setPixelSize(text_px(role))
+    weight = 600 if bold and role in ("body", "caption") else WEIGHTS.get(role, 400)
     f.setWeight(QFont.Weight(weight))
     return f
 
 
-def installed_fonts():
-    """The font choices that are installed on this PC."""
-    available = set(QFontDatabase.families())
-    return [name for name in FONTS
-            if name in available or any(alt in available for alt in FONTS[name]["styles"].values())]
+def mono_font(size=None):
+    f = QFont(MONO)
+    f.setPixelSize(size or text_px("caption"))
+    return f
 
 
-def set_font(name):
-    """Choose the font (None = the first installed of the default order). Call apply(app) afterwards."""
-    global WANTED_FONT
-    WANTED_FONT = name if name in FONTS else None
+def grad(stops=None, angle=None):
+    """The accent as a QSS brush: a solid colour, or a qlineargradient drawn at the CSS angle."""
+    stops = stops or STOPS
+    angle = ANGLE if angle is None else angle
+    if len(stops) == 1:
+        return stops[0]
+    a = math.radians(angle)
+    sx, sy = math.sin(a), -math.cos(a)
+    x1, y1, x2, y2 = 0.5 - sx / 2, 0.5 - sy / 2, 0.5 + sx / 2, 0.5 + sy / 2
+    parts = ", ".join(f"stop:{i / (len(stops) - 1):.3f} {c}" for i, c in enumerate(stops))
+    return f"qlineargradient(x1:{x1:.3f}, y1:{y1:.3f}, x2:{x2:.3f}, y2:{y2:.3f}, {parts})"
 
 
-def load_fonts():
-    """Make the bundled fallback face available (used only where Ubuntu and Segoe UI are missing)."""
-    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-    for name in ("Inter-Regular.ttf", "Inter-Bold.ttf"):
-        path = os.path.join(base, "fonts", name)
-        if os.path.exists(path):
-            QFontDatabase.addApplicationFont(path)
+def qgradient(rect_w, rect_h, stops=None, angle=None):
+    """The accent as a QLinearGradient for painting (progress bars drawn in code, the logo tile)."""
+    from PySide6.QtGui import QLinearGradient
+    stops = stops or STOPS
+    angle = ANGLE if angle is None else angle
+    a = math.radians(angle)
+    sx, sy = math.sin(a), -math.cos(a)
+    cx, cy = rect_w / 2, rect_h / 2
+    half = (abs(sx) * rect_w + abs(sy) * rect_h) / 2
+    g = QLinearGradient(cx - sx * half, cy - sy * half, cx + sx * half, cy + sy * half)
+    for i, c in enumerate(stops):
+        g.setColorAt(i / max(1, len(stops) - 1), QColor(c))
+    return g
 
 
 def _resolve_family():
-    global FAMILY, MONO, FONT_NAME, ROLE_FONT
+    from PySide6.QtGui import QFontDatabase
+    global FAMILY, MONO
     available = set(QFontDatabase.families())
-    choices = installed_fonts()
-    order = ([WANTED_FONT] if WANTED_FONT in choices else []) + [n for n in DEFAULT_FONTS if n in choices]
-    FONT_NAME = order[0] if order else "Segoe UI"
-    spec = FONTS.get(FONT_NAME, FONTS["Segoe UI"])
-    ROLE_FONT = {}
-    for role, weight in spec["weights"].items():
-        alt = spec["styles"].get(weight)
-        if FONT_NAME in available or not alt or alt not in available:
-            ROLE_FONT[role] = (FONT_NAME, weight)   # one family with real weights
-        else:
-            ROLE_FONT[role] = (alt, 400)            # the weight is installed as its own family
-    for role in ("caption", "value"):
-        ROLE_FONT[role] = ROLE_FONT["body"]
-    FAMILY = ROLE_FONT["body"][0]
-    MONO = next((f for f in ("Ubuntu Mono", "Cascadia Mono", "Consolas", "DejaVu Sans Mono") if f in available),
-                "Consolas")
+    wanted = THEME["font"]["family"]
+    FAMILY = wanted if wanted in available else "Inter"  # a missing font falls back to Inter
+    MONO = "JetBrains Mono" if "JetBrains Mono" in available else "Consolas"
 
 
 def _palette():
     p = QPalette()
-    for role, colour in ((QPalette.Window, BG), (QPalette.WindowText, TEXT), (QPalette.Base, FIELD),
+    for role, colour in ((QPalette.Window, GROUND), (QPalette.WindowText, TEXT), (QPalette.Base, FIELD),
                          (QPalette.AlternateBase, PANEL), (QPalette.Text, TEXT), (QPalette.Button, RAISED),
-                         (QPalette.ButtonText, TEXT), (QPalette.Highlight, SELECT),
-                         (QPalette.HighlightedText, TEXT), (QPalette.ToolTipBase, RAISED),
-                         (QPalette.ToolTipText, TEXT), (QPalette.PlaceholderText, FAINT),
-                         (QPalette.Link, ACCENT)):
+                         (QPalette.ButtonText, TEXT), (QPalette.Highlight, TINT_TICK),
+                         (QPalette.HighlightedText, TEXT), (QPalette.ToolTipBase, PANEL),
+                         (QPalette.ToolTipText, TEXT), (QPalette.PlaceholderText, FAINT), (QPalette.Link, ACCENT)):
         p.setColor(role, QColor(colour))
-    p.setColor(QPalette.Disabled, QPalette.Text, QColor(FAINT))
-    p.setColor(QPalette.Disabled, QPalette.ButtonText, QColor(FAINT))
-    p.setColor(QPalette.Disabled, QPalette.WindowText, QColor(FAINT))
+    if hasattr(QPalette, "Accent"):
+        p.setColor(QPalette.Accent, QColor(ACCENT))
+    for role in (QPalette.Text, QPalette.ButtonText, QPalette.WindowText):
+        p.setColor(QPalette.Disabled, role, QColor(FAINT))
     return p
 
 
 def _png(name, draw):
-    """A tiny generated image (chevron, check mark), so the style sheet can use it without bundled files."""
-    path = os.path.join(tempfile.gettempdir(), f"mediatoolbox3_{name}.png")
+    """A tiny generated image (chevrons, ticks, sort arrows) so the style sheet needs no bundled files."""
+    path = os.path.join(tempfile.gettempdir(), f"mediatoolbox2_{name}.png")
     if not os.path.exists(path):
         from PIL import Image, ImageDraw
-        img = Image.new("RGBA", (48, 48), (0, 0, 0, 0))
+        img = Image.new("RGBA", (56, 56), (0, 0, 0, 0))
         draw(ImageDraw.Draw(img))
-        img.resize((12, 12), Image.LANCZOS).save(path)
+        img.resize((14, 14), Image.LANCZOS).save(path)
     return path.replace("\\", "/")
 
 
-def _chevron():
-    return _png("chevron_" + MUTED.lstrip("#"),
-                lambda d: d.line([(10, 18), (24, 32), (38, 18)], fill=MUTED, width=6, joint="curve"))
+def _chevron(colour):
+    return _png("chev_" + colour.lstrip("#"),
+                lambda d: d.line([(14, 21), (28, 35), (42, 21)], fill=colour, width=6, joint="curve"))
 
 
-def _check():
-    return _png("check_" + ON_ACCENT.lstrip("#"),
-                lambda d: d.line([(10, 25), (20, 35), (38, 13)], fill=ON_ACCENT, width=7, joint="curve"))
+def _check(colour):
+    return _png("check_" + colour.lstrip("#"),
+                lambda d: d.line([(13, 29), (24, 40), (44, 16)], fill=colour, width=7, joint="curve"))
+
+
+def _tri(colour, up):
+    pts = [(14, 36), (42, 36), (28, 18)] if up else [(14, 20), (42, 20), (28, 38)]
+    return _png(("up_" if up else "down_") + colour.lstrip("#"), lambda d: d.polygon(pts, fill=colour))
+
+
+def _tag(name, colour, fill):
+    fc = text_px("caption")
+    return (f'QLabel[tag="{name}"] {{ background: {fill}; color: {colour}; border-radius: 10px; padding: 0px 8px; '
+            f'font-size: {fc}px; font-weight: 600; min-height: 20px; max-height: 20px; }}')
 
 
 def stylesheet():
-    ctrl = CONTROL_H - 2  # inside the one-pixel border
+    rh, rc, rp = ROW_H, R_CONTROL, R_PANEL
+    inner = CONTROL_H - 2  # inside a one-pixel border
+    g = grad()
+    g_hover = grad([mix(s, "#ffffff", 0.12) for s in STOPS])
+    fs, fc = text_px("body"), text_px("caption")
+    tags = "\n".join([_tag("acc", TEXT, TINT_PILL), _tag("ok", OK, mix(PANEL, OK, 0.16)),
+                      _tag("warn", WARN, mix(PANEL, WARN, 0.16)), _tag("danger", DANGER, mix(PANEL, DANGER, 0.16)),
+                      _tag("plain", SEC, RAISED2)])
     return f"""
     * {{ outline: 0; }}
-    QWidget {{ color: {TEXT}; font-family: "{ROLE_FONT['body'][0]}"; font-weight: {ROLE_FONT['body'][1]}; font-size: {text_px('body')}px; }}
-    QWidget#root, QStackedWidget, QWidget#page {{ background: {BG}; }}
+    QWidget {{ color: {TEXT}; font-family: "{FAMILY}"; font-size: {fs}px; }}
+    QMainWindow, QWidget#root, QStackedWidget, QWidget#page, QWidget#pagehost {{ background: {GROUND}; }}
     QLabel {{ background: transparent; }}
-    QLabel[role="title"] {{ font-size: {text_px('title')}px; font-family: "{ROLE_FONT['title'][0]}"; font-weight: {ROLE_FONT['title'][1]}; }}
-    QLabel[role="heading"] {{ font-family: "{ROLE_FONT['heading'][0]}"; font-weight: {ROLE_FONT['heading'][1]}; }}
-    QLabel[role="muted"] {{ color: {MUTED}; }}
-    QLabel[role="caption"] {{ color: {MUTED}; font-size: {text_px('caption')}px; }}
+    QLabel[role="title"] {{ font-size: {text_px('title')}px; font-weight: 700; }}
+    QLabel[role="heading"] {{ font-weight: 600; }}
+    QLabel[role="muted"] {{ color: {SEC}; }}
+    QLabel[role="caption"] {{ color: {FAINT}; font-size: {fc}px; }}
     QLabel[role="empty"] {{ color: {FAINT}; }}
-    QLabel[role="badge"] {{ color: {ACCENT}; font-size: {text_px('caption')}px; font-family: "{ROLE_FONT['heading'][0]}"; font-weight: {ROLE_FONT['heading'][1]}; }}
+    QLabel[role="value"] {{ color: {TEXT}; }}
+    QLabel[role="mono"] {{ font-family: "{MONO}"; font-size: {fc}px; color: {SEC}; }}
+    QLabel[role="warn"] {{ color: {WARN}; }}
+    QLabel[role="danger"] {{ color: {DANGER}; }}
+    QLabel[role="ok"] {{ color: {OK}; }}
+    QLabel[role="accent"] {{ color: {ACCENT}; }}
+    {tags}
 
-    QFrame#rail {{ background: {PANEL}; border-right: 1px solid {BORDER}; }}
-    QFrame#toolbar, QFrame#panel, QFrame#card {{ background: {PANEL}; border: 1px solid {BORDER};
-                                              border-radius: {R_PANEL}px; }}
-    QFrame#copy {{ background: {RAISED}; border: 1px solid {BORDER}; border-radius: {R_PANEL}px; }}
-    QFrame#copy:hover {{ border: 1px solid {FAINT}; }}
-    QFrame#preview {{ background: {FIELD}; border: 1px solid {BORDER}; border-radius: {R_PANEL}px; }}
-    QFrame#divider {{ background: {BORDER}; border: none; }}
-    QFrame#statusbar {{ background: {PANEL}; border-top: 1px solid {BORDER}; }}
-    QFrame#logpanel {{ background: {PANEL}; border-top: 1px solid {BORDER}; }}
+    QFrame#titlebar {{ background: {GROUND}; border-bottom: 1px solid {LINE}; }}
+    QLabel#appname {{ font-size: 12px; font-weight: 600; color: {TEXT}; }}
+    QLabel#screenname {{ font-size: 12px; color: {FAINT}; }}
+    QPushButton#winbtn, QPushButton#winclose {{ background: {GROUND}; border: none; border-radius: 0px; padding: 0px;
+        min-height: 31px; max-height: 31px; min-width: 46px; max-width: 46px; }}
+    QPushButton#winbtn:hover {{ background: {RAISED2}; }}
+    QPushButton#winclose:hover {{ background: #c42b1c; }}
+    QPushButton#pill {{ background: {RAISED}; border: 1px solid {LINE}; border-radius: 11px; padding: 0px 10px;
+        min-height: 20px; max-height: 20px; color: {SEC}; font-size: {fc}px; font-weight: 400; }}
+    QPushButton#pill:hover {{ background: {TINT_PILL}; color: {TEXT}; }}
 
-    QPushButton, QToolButton {{ background: {RAISED}; color: {TEXT}; border: 1px solid {BORDER};
-                   border-radius: {R_CONTROL}px; padding: 0px 12px; min-height: {ctrl}px; max-height: {ctrl}px; }}
-    QPushButton:hover, QToolButton:hover {{ background: {RAISED_HOVER}; }}
-    QPushButton:focus, QToolButton:focus {{ border: 1px solid {ACCENT}; }}
+    QFrame#rail {{ background: {RAIL}; border-right: 1px solid {LINE}; }}
+    QToolButton#railbtn {{ background: transparent; border: none; border-radius: {rc}px; color: {SEC};
+        font-size: 11px; font-weight: 400; padding: 5px 0px 4px 0px; min-height: 0px; max-height: 1000px; }}
+    QToolButton#railbtn:hover {{ background: {RAISED}; color: {TEXT}; }}
+    QToolButton#railbtn[active="true"] {{ background: {RAISED}; color: {TEXT}; }}
+    QToolButton#railbtn:focus {{ border: 2px solid {ACCENT}; padding: 3px 0px 2px 0px; }}
+
+    QFrame#toolbar, QFrame#panel, QFrame#card {{ background: {PANEL}; border: 1px solid {LINE}; border-radius: {rp}px; }}
+    QFrame#tile {{ background: {RAISED}; border: 1px solid {LINE}; border-radius: {rp}px; }}
+    QFrame#tile[chosen="true"] {{ border: 1px solid {ACCENT}; }}
+    QFrame#copy {{ background: {RAISED}; border: 1px solid {LINE}; border-radius: {rp}px; }}
+    QFrame#copy:hover {{ border: 1px solid {LINE2}; }}
+    QFrame#copy[best="true"] {{ border: 1px solid {ACCENT}; }}
+    QFrame#preview, QLabel#stage, QWidget#stage {{ background: {STAGE}; border: 1px solid {LINE};
+        border-radius: {max(0, rc - 1)}px; }}
+    QFrame#divider {{ background: {LINE}; border: none; }}
+    QFrame#statusbar {{ background: {PANEL}; border-top: 1px solid {LINE}; }}
+    QFrame#drawer {{ background: {PANEL}; border-top: 1px solid {LINE2}; }}
+    QFrame#selbar {{ background: {mix(PANEL, ACCENT, 0.08)}; border: 1px solid {mix(PANEL, ACCENT, 0.26)};
+        border-radius: {rc}px; }}
+    QFrame#banner {{ background: {mix(PANEL, ACCENT, 0.06)}; border: 1px solid {mix(PANEL, ACCENT, 0.26)};
+        border-radius: {rp}px; }}
+    QWidget#scrim {{ background: rgba(0, 0, 0, 140); }}
+    QFrame#dialog {{ background: {PANEL}; border: 1px solid {LINE2}; border-radius: 12px; }}
+    QFrame#toast {{ background: {RAISED}; border: 1px solid {LINE2}; border-radius: {rp}px; }}
+    QFrame#popup {{ background: {PANEL}; border: 1px solid {LINE2}; border-radius: {rp}px; }}
+
+    QPushButton, QToolButton {{ background: {RAISED}; color: {TEXT}; border: 1px solid {LINE}; border-radius: {rc}px;
+        padding: 0px 12px; min-height: {inner}px; max-height: {inner}px; font-weight: 600; }}
+    QPushButton:hover, QToolButton:hover {{ background: {RAISED2}; }}
+    QPushButton:focus, QToolButton:focus {{ border: 2px solid {ACCENT}; padding: 0px 11px; }}
     QPushButton:disabled, QToolButton:disabled {{ color: {FAINT}; background: {PANEL}; }}
-    QPushButton:checked {{ background: {SELECT}; border: 1px solid {SELECT}; }}
-    QPushButton[kind="primary"] {{ background: {ACCENT}; color: {ON_ACCENT}; border: 1px solid {ACCENT};
-                                   font-family: "{ROLE_FONT['body'][0]}"; font-weight: {ROLE_FONT['body'][1]}; }}
-    QPushButton[kind="primary"]:hover {{ background: {ACCENT_HOVER}; border: 1px solid {ACCENT_HOVER}; }}
-    QPushButton[kind="primary"]:disabled {{ background: {RAISED}; color: {FAINT}; border: 1px solid {BORDER}; }}
-    QPushButton[kind="danger"] {{ color: {DANGER}; }}
-    QPushButton[kind="danger"]:hover {{ background: {DANGER}; color: #ffffff; border: 1px solid {DANGER}; }}
-    QPushButton[kind="danger"]:disabled {{ color: {FAINT}; }}
-    QToolButton::menu-indicator {{ image: url("{_chevron()}"); subcontrol-position: right center;
-                                  right: 8px; width: 10px; height: 10px; }}
-    QToolButton[popupMode="2"] {{ padding-right: 24px; }}
+    QPushButton:checked {{ background: {RAISED2}; }}
+    QPushButton[kind="primary"] {{ background: {g}; color: {ON_ACCENT}; border: 1px solid {ACC2}; }}
+    QPushButton[kind="primary"]:hover {{ background: {g_hover}; }}
+    QPushButton[kind="primary"]:focus {{ border: 2px solid {TEXT}; }}
+    QPushButton[kind="primary"]:disabled {{ background: {RAISED}; color: {FAINT}; border: 1px solid {LINE}; }}
+    QPushButton[kind="ghost"] {{ background: transparent; border: 1px solid transparent; color: {SEC}; }}
+    QPushButton[kind="ghost"]:hover {{ background: {RAISED}; color: {TEXT}; }}
+    QPushButton[kind="ghost"]:focus {{ border: 2px solid {ACCENT}; }}
+    QPushButton[kind="danger-ghost"] {{ background: transparent; color: {DANGER}; border: 1px solid {mix(PANEL, DANGER, 0.45)}; }}
+    QPushButton[kind="danger-ghost"]:hover {{ background: {mix(PANEL, DANGER, 0.12)}; }}
+    QPushButton[kind="danger"] {{ background: {DANGER}; color: #ffffff; border: 1px solid {DANGER}; }}
+    QPushButton[kind="danger"]:hover {{ background: {mix(DANGER, '#ffffff', 0.12)}; }}
+    QPushButton[kind="danger"]:focus {{ border: 2px solid {TEXT}; }}
+    QToolButton::menu-indicator {{ image: url("{_chevron(SEC)}"); subcontrol-position: right center; right: 8px;
+        width: 12px; height: 12px; }}
+    QToolButton[popupMode="2"] {{ padding-right: 26px; }}
 
-    QPushButton[rail="true"] {{ background: transparent; border: none; border-radius: {R_CONTROL + 1}px;
-                               color: {MUTED}; text-align: left; padding: 0px 0px 0px 7px;
-                               min-height: 32px; max-height: 32px; }}
-    QPushButton[rail="true"]:hover {{ background: {RAISED}; color: {TEXT}; }}
-    QPushButton[rail="true"][active="true"] {{ background: {SELECT_SOFT}; color: {TEXT}; }}
-    QLabel#brand {{ font-family: "{ROLE_FONT['heading'][0]}"; font-weight: {ROLE_FONT['heading'][1]}; }}
+    QFrame#seg {{ background: {FIELD}; border: 1px solid {LINE}; border-radius: {rc}px; }}
+    QPushButton#segbtn {{ background: transparent; border: none; border-radius: {max(0, rc - 2)}px; color: {SEC};
+        padding: 0px 10px; min-height: {inner - 4}px; max-height: {inner - 4}px; font-weight: 400; }}
+    QPushButton#segbtn:hover {{ color: {TEXT}; }}
+    QPushButton#segbtn:checked {{ background: {RAISED2}; color: {TEXT}; }}
+    QPushButton#segbtn:focus {{ border: 2px solid {ACCENT}; padding: 0px 8px; }}
 
-    QLineEdit, QComboBox, QSpinBox {{ background: {FIELD}; color: {TEXT}; border: 1px solid {BORDER};
-                   border-radius: {R_CONTROL}px; padding: 0px 8px; min-height: {ctrl}px; max-height: {ctrl}px;
-                   selection-background-color: {SELECT}; }}
-    QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{ border: 1px solid {ACCENT}; }}
+    QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{ background: {FIELD}; color: {TEXT}; border: 1px solid {LINE2};
+        border-radius: {rc}px; padding: 0px 8px; min-height: {inner}px; max-height: {inner}px;
+        selection-background-color: {TINT_TICK}; selection-color: {TEXT}; }}
+    QComboBox {{ background: {RAISED}; padding-right: 26px; }}
+    QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border: 2px solid {ACCENT}; padding: 0px 7px; }}
+    QComboBox:focus {{ padding-right: 25px; }}
     QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled {{ color: {FAINT}; }}
-    QComboBox {{ padding-right: 24px; }}
-    QComboBox::drop-down {{ border: none; width: 24px; }}
-    QComboBox::down-arrow {{ image: url("{_chevron()}"); width: 10px; height: 10px; }}
-    QComboBox QAbstractItemView {{ background: {RAISED}; color: {TEXT}; border: 1px solid {BORDER};
-                                  selection-background-color: {SELECT}; padding: 4px; }}
-    QSpinBox::up-button, QSpinBox::down-button {{ width: 0px; border: none; }}
+    QLineEdit#mono {{ font-family: "{MONO}"; font-size: {fc}px; }}
+    QComboBox::drop-down {{ border: none; width: 26px; }}
+    QComboBox::down-arrow {{ image: url("{_chevron(SEC)}"); width: 14px; height: 14px; }}
+    QSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
+        width: 0px; border: none; }}
+    QComboBox QAbstractItemView {{ background: {PANEL}; color: {TEXT}; border: 1px solid {LINE2};
+        selection-background-color: {TINT_TICK}; padding: 4px; outline: 0; }}
 
-    QCheckBox {{ spacing: 8px; background: transparent; }}
-    QCheckBox::indicator, QTreeWidget::indicator, QListWidget::indicator {{
-        width: 14px; height: 14px; border-radius: 3px; border: 1px solid {FAINT}; background: {FIELD}; }}
-    QCheckBox::indicator:hover {{ border: 1px solid {MUTED}; }}
-    QCheckBox::indicator:checked, QTreeWidget::indicator:checked, QListWidget::indicator:checked {{ background: {ACCENT}; border: 1px solid {ACCENT};
-                                   image: url("{_check()}"); }}
-    QCheckBox:disabled {{ color: {FAINT}; }}
+    QCheckBox, QRadioButton {{ spacing: 8px; background: transparent; }}
+    QCheckBox::indicator, QTreeView::indicator, QListView::indicator, QTableView::indicator {{
+        width: 14px; height: 14px; border-radius: 3px; border: 1px solid {LINE2}; background: {FIELD}; }}
+    QCheckBox::indicator:hover {{ border: 1px solid {SEC}; }}
+    QCheckBox:focus {{ color: {TEXT}; }}
+    QCheckBox::indicator:focus {{ border: 2px solid {ACCENT}; }}
+    QCheckBox::indicator:checked, QTreeView::indicator:checked, QListView::indicator:checked, QTableView::indicator:checked {{
+        background: {g}; border: 1px solid {ACC2}; image: url("{_check(ON_ACCENT)}"); }}
+    QRadioButton::indicator {{ width: 14px; height: 14px; border-radius: 7px; border: 1px solid {LINE2}; background: {FIELD}; }}
+    QRadioButton::indicator:checked {{ background: {g}; border: 4px solid {FIELD}; }}
+    QCheckBox:disabled, QRadioButton:disabled {{ color: {FAINT}; }}
 
-    QTreeWidget, QListWidget {{ background: {FIELD}; color: {TEXT}; border: 1px solid {BORDER};
-                   border-radius: {R_CONTROL}px; selection-background-color: {SELECT}; selection-color: {TEXT};
-                   alternate-background-color: #121316; }}
-    QTreeWidget::item, QListWidget::item {{ min-height: {ROW_H}px; padding: 0px 4px; border: none; }}
-    QTreeWidget::item:hover, QListWidget::item:hover {{ background: #16181b; }}
-    QTreeWidget::item:selected, QListWidget::item:selected {{ background: {SELECT}; color: {TEXT}; }}
-    QHeaderView {{ background: {FIELD}; border: none; }}
-    QHeaderView::section {{ background: {PANEL}; color: {MUTED}; border: none; border-bottom: 1px solid {BORDER};
-                           border-right: 1px solid {BORDER}; padding: 0px 8px; min-height: {ROW_H}px;
-                           font-size: {text_px('caption')}px; font-family: "{ROLE_FONT['heading'][0]}"; font-weight: {ROLE_FONT['heading'][1]}; }}
+    QTreeView, QListView, QTableView {{ background: {FIELD}; color: {TEXT}; border: 1px solid {LINE};
+        border-radius: {rc}px; selection-background-color: {TINT_SELECT}; selection-color: {TEXT};
+        alternate-background-color: {FIELD}; gridline-color: {LINE}; }}
+    QTreeView::item, QListView::item, QTableView::item {{ min-height: {rh}px; padding: 0px 4px; border: none; }}
+    QTreeView::item:hover, QListView::item:hover, QTableView::item:hover {{ background: {TINT_HOVER}; }}
+    QTreeView::item:selected, QListView::item:selected, QTableView::item:selected {{
+        background: {TINT_SELECT}; color: {TEXT}; border-top: 1px solid {ACCENT}; border-bottom: 1px solid {ACCENT}; }}
+    QListView#grid::item, QListView#grid::item:selected, QListView#grid::item:hover {{ background: transparent; border: none; }}
+    QTreeView::branch {{ background: transparent; }}
+    QHeaderView {{ background: {PANEL}; border: none; }}
+    QHeaderView::section {{ background: {PANEL}; color: {SEC}; border: none; border-bottom: 1px solid {LINE};
+        border-right: 1px solid {LINE}; padding: 0px 8px; min-height: {rh}px; font-size: {fc}px; font-weight: 600; }}
     QHeaderView::section:last {{ border-right: none; }}
-    QHeaderView::down-arrow, QHeaderView::up-arrow {{ width: 0px; height: 0px; }}
+    QHeaderView::up-arrow {{ image: url("{_tri(ACCENT, True)}"); width: 10px; height: 10px; }}
+    QHeaderView::down-arrow {{ image: url("{_tri(ACCENT, False)}"); width: 10px; height: 10px; }}
+    QTableCornerButton::section {{ background: {PANEL}; border: none; }}
 
-    QPlainTextEdit#log {{ background: {FIELD}; color: {MUTED}; border: 1px solid {BORDER};
-                         border-radius: {R_CONTROL}px; padding: 6px; font-family: "{MONO}";
-                         font-size: {text_px('caption')}px; selection-background-color: {SELECT}; }}
+    QPlainTextEdit, QTextEdit {{ background: {FIELD}; color: {SEC}; border: 1px solid {LINE}; border-radius: {rc}px;
+        padding: 6px; font-family: "{MONO}"; font-size: {fc}px; selection-background-color: {TINT_TICK}; }}
 
-    QProgressBar {{ background: {TRACK}; border: none; border-radius: 2px; min-height: 4px; max-height: 4px; }}
-    QProgressBar::chunk {{ background: {ACCENT}; border-radius: 2px; }}
-    QSlider::groove:horizontal {{ background: {TRACK}; height: 4px; border-radius: 2px; }}
-    QSlider::sub-page:horizontal {{ background: {ACCENT}; height: 4px; border-radius: 2px; }}
-    QSlider::handle:horizontal {{ background: {TEXT}; width: 12px; height: 12px; margin: -4px 0px;
-                                 border-radius: 6px; }}
+    QProgressBar {{ background: {RAISED2}; border: none; border-radius: 3px; min-height: 6px; max-height: 6px; }}
+    QProgressBar::chunk {{ background: {g}; border-radius: 3px; }}
+    QSlider::groove:horizontal {{ background: {RAISED2}; height: 4px; border-radius: 2px; }}
+    QSlider::sub-page:horizontal {{ background: {g}; height: 4px; border-radius: 2px; }}
+    QSlider::handle:horizontal {{ background: {TEXT}; width: 12px; height: 12px; margin: -4px 0px; border-radius: 6px; }}
 
     QScrollArea {{ background: transparent; border: none; }}
     QScrollArea > QWidget > QWidget {{ background: transparent; }}
     QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
     QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px; }}
-    QScrollBar::handle {{ background: {RAISED_HOVER}; border-radius: 3px; min-width: 24px; min-height: 24px; }}
-    QScrollBar::handle:hover {{ background: {FAINT}; }}
+    QScrollBar::handle {{ background: {RAISED2}; border-radius: 3px; min-width: 24px; min-height: 24px; }}
+    QScrollBar::handle:hover {{ background: {LINE2}; }}
     QScrollBar::add-line, QScrollBar::sub-line {{ width: 0px; height: 0px; }}
     QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 
     QSplitter::handle {{ background: transparent; }}
-    QSplitter::handle:hover {{ background: {BORDER}; }}
+    QSplitter::handle:hover {{ background: {LINE}; }}
+    QTabBar::tab {{ background: transparent; color: {SEC}; padding: 4px 12px; border: none;
+        border-bottom: 2px solid transparent; font-weight: 600; }}
+    QTabBar::tab:selected {{ color: {TEXT}; border-bottom: 2px solid {ACCENT}; }}
+    QTabWidget::pane {{ border: none; }}
 
-    QMenu {{ background: {RAISED}; border: 1px solid {BORDER}; padding: 4px; }}
+    QMenu {{ background: {PANEL}; border: 1px solid {LINE2}; padding: 4px; }}
     QMenu::item {{ padding: 5px 16px; border-radius: 4px; }}
-    QMenu::item:selected {{ background: {SELECT}; }}
+    QMenu::item:selected {{ background: {TINT_TICK}; }}
     QMenu::item:disabled {{ color: {FAINT}; }}
-    QMenu::separator {{ height: 1px; background: {BORDER}; margin: 4px 6px; }}
-    QToolTip {{ background: {RAISED}; color: {TEXT}; border: 1px solid {BORDER}; padding: 4px 6px; }}
-    QMessageBox QLabel {{ color: {TEXT}; }}
+    QMenu::separator {{ height: 1px; background: {LINE}; margin: 4px 6px; }}
+    QToolTip {{ background: {PANEL}; color: {TEXT}; border: 1px solid {LINE2}; padding: 4px 6px; }}
     """
 
 
 def apply(app):
-    """Apply the font, colours and sizes to the whole application."""
+    """Apply the current look to the whole application, in place."""
+    from PySide6.QtWidgets import QPushButton
     _resolve_family()
-    app.setFont(font("body"))
+    f = font("body")
+    try:
+        f.setFeature(QFont.Tag("tnum"), 1)  # even-width numbers wherever digits line up
+    except Exception:
+        pass
+    app.setFont(f)
     app.setPalette(_palette())
     app.setStyleSheet(stylesheet())
+    for w in app.allWidgets():
+        if isinstance(w, QPushButton) and w.property("kind") == "primary":
+            set_glow(w)
+    for fn in list(_listeners):
+        try:
+            fn()
+        except Exception:
+            pass
+
+
+def set_glow(button):
+    """The Glow button style: a soft accent glow along the bottom of primary buttons (off by default)."""
+    from PySide6.QtWidgets import QGraphicsDropShadowEffect
+    if GLOW:
+        effect = QGraphicsDropShadowEffect(button)
+        effect.setColor(QColor(ACCENT))
+        effect.setBlurRadius(16)
+        effect.setOffset(0, 3)
+        button.setGraphicsEffect(effect)
+    elif button.graphicsEffect() is not None:
+        button.setGraphicsEffect(None)

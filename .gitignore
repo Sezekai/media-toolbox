@@ -1,1 +1,12 @@
 __pycache__/
+dev-root/
+LocalData/
+build/
+dist/
+*.spec
+selftest/
+ffmpeg.exe
+ffprobe.exe
+ffmpeg.zip
+ffmpeg_tmp/
+.pytest_cache/

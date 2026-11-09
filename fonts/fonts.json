@@ -1,0 +1,401 @@
+[
+ {
+  "id": "inter",
+  "family": "Inter",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "inter/inter-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "inter/inter-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "inter/inter-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "geist",
+  "family": "Geist",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "geist/geist-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "geist/geist-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "geist/geist-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "manrope",
+  "family": "Manrope",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "manrope/manrope-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "manrope/manrope-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "manrope/manrope-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "figtree",
+  "family": "Figtree",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "figtree/figtree-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "figtree/figtree-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "figtree/figtree-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "onest",
+  "family": "Onest",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "onest/onest-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "onest/onest-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "onest/onest-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "rubik",
+  "family": "Rubik",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "rubik/rubik-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "rubik/rubik-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "rubik/rubik-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "lexend",
+  "family": "Lexend",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "lexend/lexend-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "lexend/lexend-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "lexend/lexend-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "ibm-plex-sans",
+  "family": "IBM Plex Sans",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "ibm-plex-sans/ibm-plex-sans-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "ibm-plex-sans/ibm-plex-sans-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "ibm-plex-sans/ibm-plex-sans-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "atkinson-hyperlegible-next",
+  "family": "Atkinson Hyperlegible Next",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "atkinson-hyperlegible-next/atkinson-hyperlegible-next-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "atkinson-hyperlegible-next/atkinson-hyperlegible-next-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "atkinson-hyperlegible-next/atkinson-hyperlegible-next-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "ubuntu",
+  "family": "Ubuntu",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "ubuntu/ubuntu-400.ttf"
+   },
+   {
+    "weight": 500,
+    "file": "ubuntu/ubuntu-500.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "ubuntu/ubuntu-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "plus-jakarta-sans",
+  "family": "Plus Jakarta Sans",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "plus-jakarta-sans/plus-jakarta-sans-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "plus-jakarta-sans/plus-jakarta-sans-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "plus-jakarta-sans/plus-jakarta-sans-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "dm-sans",
+  "family": "DM Sans",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "dm-sans/dm-sans-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "dm-sans/dm-sans-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "dm-sans/dm-sans-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "work-sans",
+  "family": "Work Sans",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "work-sans/work-sans-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "work-sans/work-sans-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "work-sans/work-sans-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "public-sans",
+  "family": "Public Sans",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "public-sans/public-sans-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "public-sans/public-sans-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "public-sans/public-sans-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "nunito-sans",
+  "family": "Nunito Sans",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "nunito-sans/nunito-sans-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "nunito-sans/nunito-sans-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "nunito-sans/nunito-sans-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "sora",
+  "family": "Sora",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "sora/sora-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "sora/sora-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "sora/sora-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "space-grotesk",
+  "family": "Space Grotesk",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "space-grotesk/space-grotesk-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "space-grotesk/space-grotesk-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "space-grotesk/space-grotesk-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "outfit",
+  "family": "Outfit",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "outfit/outfit-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "outfit/outfit-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "outfit/outfit-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "red-hat-text",
+  "family": "Red Hat Text",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "red-hat-text/red-hat-text-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "red-hat-text/red-hat-text-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "red-hat-text/red-hat-text-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "albert-sans",
+  "family": "Albert Sans",
+  "mono": false,
+  "files": [
+   {
+    "weight": 400,
+    "file": "albert-sans/albert-sans-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "albert-sans/albert-sans-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "albert-sans/albert-sans-700.ttf"
+   }
+  ]
+ },
+ {
+  "id": "jetbrains-mono",
+  "family": "JetBrains Mono",
+  "mono": true,
+  "files": [
+   {
+    "weight": 400,
+    "file": "jetbrains-mono/jetbrains-mono-400.ttf"
+   },
+   {
+    "weight": 600,
+    "file": "jetbrains-mono/jetbrains-mono-600.ttf"
+   },
+   {
+    "weight": 700,
+    "file": "jetbrains-mono/jetbrains-mono-700.ttf"
+   }
+  ]
+ }
+]

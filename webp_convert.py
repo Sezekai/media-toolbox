@@ -1,20 +1,17 @@
-"""Find .webp images and convert them to .jpg in the same folder as each original."""
+"""Convert .webp images to .jpg beside each original."""
 from pathlib import Path
 
 from PIL import Image
-from send2trash import send2trash
 
-from media_utils import noop
+import fileops
+from media_utils import find_files, noop
 
 
 def find_webp(folder, recursive):
-    """All .webp files in the folder (and subfolders if recursive), as sorted Paths."""
-    folder = Path(folder)
-    iterator = folder.rglob("*.webp") if recursive else folder.glob("*.webp")
-    return sorted(p for p in iterator if p.is_file())
+    return find_files(folder, recursive, {".webp"})
 
 
-def _to_jpg(src, dst, quality):
+def to_jpg(src, dst, quality):
     with Image.open(src) as img:
         # JPG has no transparency, so transparent areas are filled with white.
         if img.mode in ("RGBA", "LA", "P"):
@@ -24,34 +21,40 @@ def _to_jpg(src, dst, quality):
             img = background
         else:
             img = img.convert("RGB")
-        # Metadata (EXIF, ICC profile) is not copied, and only the first frame of an animated WebP is kept.
+        # Metadata (EXIF, ICC profile) isn't copied, and only the first frame of an animated WebP is kept.
         img.save(dst, "JPEG", quality=quality, optimize=True)
 
 
-def convert_files(files, quality, delete_originals, log=print, progress=None):
+def convert_files(files, quality, recycle_originals, log=print, progress=None, state=None):
+    """Convert each file; a taken .jpg name gets " (2)". state(path, "Working"/"Done"/"Failed", detail) is
+    called for each file. Returns (made, failed)."""
     progress = progress or noop
+    state = state or noop
     files = [Path(f) for f in files]
     total = len(files)
-    log(f"JPG quality {quality}%. Transparent areas become white. Metadata is not kept.")
-    converted = 0
+    log(f"JPG quality {quality}%. Transparent areas become white. Metadata isn't kept.")
+    made, failed = 0, 0
     for i, src in enumerate(files, 1):
-        progress(i - 1, total, "Converting")
-        dst = src.with_suffix(".jpg")
-        if dst.exists():
-            log(f"[{i}/{total}] skipped (JPG already exists): {dst.name}")
-            continue
+        progress(i - 1, total, f"Converting {src.name}")
+        state(str(src), "Working", "")
+        dst = fileops.unique_path(src.parent, src.stem + ".jpg")
         try:
-            _to_jpg(src, dst, quality)
+            to_jpg(src, dst, quality)
         except Exception as exc:
+            failed += 1
             log(f"[{i}/{total}] failed: {src.name}: {exc}")
+            state(str(src), "Failed", str(exc))
             continue
-        converted += 1
-        log(f"[{i}/{total}] converted: {src.name} -> {dst.name}")
-        if delete_originals:
+        made += 1
+        log(f"[{i}/{total}] {src.name} → {dst.name}")
+        detail = dst.name
+        if recycle_originals:
             try:
-                send2trash(str(src))
-                log(f"  sent original to Recycle Bin: {src.name}")
-            except Exception as exc:
-                log(f"  could not recycle {src.name}: {exc}")
+                fileops.recycle(src)
+                log(f"  sent the original to the Recycle Bin: {src.name}")
+                detail += " · original in the Recycle Bin"
+            except fileops.RecycleError as exc:
+                log(f"  {exc}")
+        state(str(src), "Done", detail)
     progress(total, total, "Converted")
-    log(f"Converted {converted} of {total} file(s).")
+    return made, failed

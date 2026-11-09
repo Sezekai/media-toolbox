@@ -1,7 +1,7 @@
 """Duplicate video detection. Wraps the vdf-cli engine from 0x90d/videoduplicatefinder (AGPLv3).
 
-The engine is NOT bundled with this app. It is downloaded at runtime into the app data folder, and
-FFmpeg is copied from the bundled copy or downloaded the same way the build does. Nothing here
+The engine is NOT bundled with this app. It is downloaded when you ask, into the engine storage place
+(Models\\vdf-cli beside the app), and the bundled FFmpeg is copied into Models\\ffmpeg for it. Nothing here
 permanently deletes a file: removals go to the Recycle Bin and are logged to a CSV file."""
 import csv
 import hashlib
@@ -18,12 +18,17 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+import fileops
+import jobs
+import movelog
+import paths
 import settings
 
 REPO = "0x90d/videoduplicatefinder"
 RELEASES_API = f"https://api.github.com/repos/{REPO}/releases/latest"
 FFMPEG_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
-ENGINE_NAME = "vdf-cli.exe" if sys.platform == "win32" else "vdf-cli"
+EXE = ".exe" if sys.platform == "win32" else ""
+ENGINE_NAME = "vdf-cli" + EXE
 PROGRESS_RE = re.compile(r"\[\s*(\d{1,3})%\]")
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 MATCH_LABELS = {
@@ -36,24 +41,32 @@ MATCH_LABELS = {
 
 # ---------- folders and install state ----------
 def data_dir():
-    base = os.environ.get("APPDATA") or os.path.expanduser("~")
-    folder = Path(base) / "Media Toolbox" / "duplicates"
-    folder.mkdir(parents=True, exist_ok=True)
-    return folder
+    """Small files: last results, the deletions log."""
+    return paths.place("data")
 
 
 def engine_dir():
-    folder = data_dir() / "engine"
-    folder.mkdir(parents=True, exist_ok=True)
-    return folder
+    return paths.place("engine")
+
+
+def ffmpeg_dir():
+    return paths.place("ffmpeg")
+
+
+def db_path():
+    return paths.place("fingerprints") / "fingerprints.db"
+
+
+def temp_dir():
+    return paths.place("temp")
 
 
 def find_engine():
     """The installed vdf-cli, or None."""
-    saved = settings.load().get("dup_engine_path")
-    if saved and Path(saved).exists():
-        return saved
-    found = list(engine_dir().rglob(ENGINE_NAME))
+    folder = paths.BY_KEY["engine"].path()
+    if not folder.exists():
+        return None
+    found = sorted(folder.rglob(ENGINE_NAME))
     return str(found[0]) if found else None
 
 
@@ -61,55 +74,65 @@ def installed_version():
     return settings.load().get("dup_engine_version", "")
 
 
+def _ffmpeg_in(folder):
+    return all((Path(folder) / (n + EXE)).exists() for n in ("ffmpeg", "ffprobe"))
+
+
 def ffmpeg_ready():
-    """FFmpeg and FFprobe must be on PATH or beside the engine. Returns (ok, message)."""
-    folder = engine_dir()
-    missing = []
-    for name in ("ffmpeg", "ffprobe"):
-        exe = name + (".exe" if sys.platform == "win32" else "")
-        if not (folder / exe).exists() and not shutil.which(name):
-            missing.append(name)
+    """The engine needs FFmpeg and FFprobe in the FFmpeg place or on PATH. Returns (ok, message)."""
+    if _ffmpeg_in(paths.BY_KEY["ffmpeg"].path()):
+        return True, "Found"
+    if getattr(sys, "_MEIPASS", None) and _ffmpeg_in(sys._MEIPASS):
+        return True, "Bundled with the app (copied for the engine when a scan starts)"
+    missing = [n for n in ("ffmpeg", "ffprobe") if not shutil.which(n)]
     if missing:
         return False, "Missing " + " and ".join(missing)
-    return True, "Found"
+    return True, "Found on PATH"
 
 
-def _copy_bundled_ffmpeg(log):
-    """The .exe ships with ffmpeg and ffprobe. Copy them beside the engine so the CLI can find them."""
+def prepare_ffmpeg(log):
+    """The .exe ships with FFmpeg and FFprobe. Copy them into the FFmpeg place so the engine can use them."""
     base = getattr(sys, "_MEIPASS", None)
-    if not base:
+    if not base or _ffmpeg_in(paths.BY_KEY["ffmpeg"].path()):
         return False
-    copied = False
-    for name in ("ffmpeg.exe", "ffprobe.exe"):
-        src = Path(base) / name
-        if src.exists() and not (engine_dir() / name).exists():
-            shutil.copy2(src, engine_dir() / name)
-            copied = True
-    if copied:
-        log("Copied the FFmpeg bundled with this app next to the engine.")
-    return copied
+    folder = ffmpeg_dir()
+    for name in ("ffmpeg", "ffprobe"):
+        src = Path(base) / (name + EXE)
+        if src.exists():
+            shutil.copy2(src, folder / (name + EXE))
+    log(f"Copied the FFmpeg bundled with this app to {folder} for the engine.")
+    return True
 
 
-# ---------- downloads ----------
-def _download(url, dest, log, progress, label):
+def engine_env():
+    """The engine finds FFmpeg on PATH: put the FFmpeg place first."""
+    env = dict(os.environ)
+    env["PATH"] = str(paths.BY_KEY["ffmpeg"].path()) + os.pathsep + env.get("PATH", "")
+    return env
+
+
+# ---------- downloads (STANDARDS.md: say what, how big and where before downloading) ----------
+def download(url, dest, log, progress, label):
+    """Download with progress in bytes (the status bar shows MB and MB/s). Writes to a .part file first."""
     request = urllib.request.Request(url, headers={"User-Agent": "MediaToolbox"})
-    with urllib.request.urlopen(request, timeout=60) as response, open(dest, "wb") as out:
+    part = Path(str(dest) + ".part")
+    with urllib.request.urlopen(request, timeout=60) as response, open(part, "wb") as out:
         total = int(response.headers.get("Content-Length") or 0)
         done = 0
+        progress(0, total, f"Downloading {label}", size=True)
         while True:
             chunk = response.read(256 * 1024)
             if not chunk:
                 break
             out.write(chunk)
             done += len(chunk)
-            if total:
-                progress(done, total, f"Downloading {label}")
-    log(f"Downloaded {label} ({done // (1024 * 1024)} MB).")
+            progress(done, total, f"Downloading {label}", size=True)
+    os.replace(part, dest)
+    log(f"Downloaded {label} ({done / 1048576:.1f} MB).")
 
 
 def latest_release():
-    """Tag name and asset list of the newest engine release. Asset names are listed in errors,
-    so nothing is guessed silently."""
+    """Tag name and asset list of the newest engine release."""
     request = urllib.request.Request(RELEASES_API, headers={"User-Agent": "MediaToolbox",
                                                             "Accept": "application/vnd.github+json"})
     with urllib.request.urlopen(request, timeout=30) as response:
@@ -143,50 +166,69 @@ def pick_cli_asset(assets):
     raise RuntimeError(f"No Windows CLI zip for {arch} in the latest release. Assets: {names}")
 
 
-def check_update():
-    """(installed, latest). installed is '' when the engine is not installed."""
-    tag, _ = latest_release()
-    return installed_version(), tag
-
-
-def install_engine(log, progress):
+def lookup_engine(log=print, progress=None):
+    """What would be downloaded: {"tag", "name", "size", "url", "dest"}. Nothing is downloaded yet."""
+    if progress:
+        progress(0, 0, "Asking GitHub for the newest engine")
     tag, assets = latest_release()
     asset = pick_cli_asset(assets)
-    log(f"Latest engine release: {tag}. Downloading {asset['name']}.")
-    work = Path(tempfile.mkdtemp(prefix="vdf-", dir=data_dir()))
+    info = {"tag": tag, "name": asset["name"], "size": int(asset.get("size") or 0),
+            "url": asset["browser_download_url"], "dest": str(paths.BY_KEY["engine"].path())}
+    log(f"Newest engine: {tag} ({asset['name']}, {info['size'] / 1048576:.1f} MB).")
+    return info
+
+
+def install_engine(info, log, progress):
+    """Download and unpack the engine described by lookup_engine()."""
+    work = Path(tempfile.mkdtemp(prefix="vdf-", dir=temp_dir()))
     try:
         zip_path = work / "engine.zip"
-        _download(asset["browser_download_url"], zip_path, log, progress, "engine")
-        progress(1, 1, "Extracting engine")
+        download(info["url"], zip_path, log, progress, f"{info['name']} ({info['tag']})")
+        progress(0, 0, "Unpacking the engine")
+        target = engine_dir()
         with zipfile.ZipFile(zip_path) as archive:
-            archive.extractall(engine_dir())
-        found = list(engine_dir().rglob(ENGINE_NAME))
-        if not found:
-            raise RuntimeError(f"{ENGINE_NAME} was not in the downloaded zip")
-        settings.save({"dup_engine_path": str(found[0]), "dup_engine_version": tag})
-        log(f"Engine {tag} installed.")
+            archive.extractall(target)
+        if not find_engine():
+            raise RuntimeError(f"{ENGINE_NAME} wasn't in the downloaded zip")
+        settings.save({"dup_engine_version": info["tag"]})
+        log(f"Engine {info['tag']} installed in {target}.")
     finally:
-        shutil.rmtree(work, ignore_errors=True)
-    _copy_bundled_ffmpeg(log)
+        shutil.rmtree(work, ignore_errors=True)  # the app's own working folder
+    prepare_ffmpeg(log)
+    return {"summary": f"engine {info['tag']} installed"}
 
 
-def install_ffmpeg(log, progress):
-    if _copy_bundled_ffmpeg(log) and ffmpeg_ready()[0]:
-        return
-    work = Path(tempfile.mkdtemp(prefix="ffmpeg-", dir=data_dir()))
+def lookup_ffmpeg(log=print, progress=None):
+    """Size of the FFmpeg download, for the question before downloading (runs from source only)."""
+    request = urllib.request.Request(FFMPEG_URL, method="HEAD", headers={"User-Agent": "MediaToolbox"})
+    size = 0
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            size = int(response.headers.get("Content-Length") or 0)
+    except Exception:
+        pass
+    return {"name": "FFmpeg essentials (gyan.dev)", "size": size, "url": FFMPEG_URL,
+            "dest": str(paths.BY_KEY["ffmpeg"].path())}
+
+
+def install_ffmpeg(info, log, progress):
+    if prepare_ffmpeg(log):
+        return {"summary": "FFmpeg ready"}
+    work = Path(tempfile.mkdtemp(prefix="ffmpeg-", dir=temp_dir()))
     try:
         zip_path = work / "ffmpeg.zip"
-        _download(FFMPEG_URL, zip_path, log, progress, "FFmpeg")
-        progress(1, 1, "Extracting FFmpeg")
+        download(info["url"], zip_path, log, progress, info["name"])
+        progress(0, 0, "Unpacking FFmpeg")
         with zipfile.ZipFile(zip_path) as archive:
             for member in archive.namelist():
                 name = Path(member).name
                 if name in ("ffmpeg.exe", "ffprobe.exe"):
-                    with archive.open(member) as src, open(engine_dir() / name, "wb") as dst:
+                    with archive.open(member) as src, open(ffmpeg_dir() / name, "wb") as dst:
                         shutil.copyfileobj(src, dst)
-        log("FFmpeg installed next to the engine.")
+        log(f"FFmpeg installed in {ffmpeg_dir()}.")
     finally:
         shutil.rmtree(work, ignore_errors=True)
+    return {"summary": "FFmpeg installed"}
 
 
 # ---------- scanning ----------
@@ -269,14 +311,18 @@ def _suspend(pid, resume):
 
 
 class ScanState:
-    """Holds the running engine process so the page can pause, continue or stop it from the UI thread.
-    Stopping keeps the work done so far: the engine saves its fingerprints every minute, and the next scan
-    skips everything already in the database."""
+    """Pauses and continues the running engine (the job's pause target). Stop is handled by the job, which ends
+    the engine and everything it started. Stopping keeps the work done so far: the engine saves its
+    fingerprints every minute, and the next scan skips everything already in the database."""
 
     def __init__(self):
         self.proc = None
-        self.cancelled = False
         self.paused = False
+
+    @property
+    def cancelled(self):
+        job = jobs.current()
+        return bool(job and job.stop_requested)
 
     def pause(self):
         proc = self.proc
@@ -292,28 +338,18 @@ class ScanState:
                 _suspend(pid, resume=True)
         self.paused = False
 
-    def cancel(self):
-        self.cancelled = True
-        if self.paused:
-            self.resume()  # a paused process cannot be ended cleanly
-        proc = self.proc
-        if proc and proc.poll() is None:
-            if sys.platform == "win32":
-                subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                               creationflags=_NO_WINDOW, capture_output=True)
-            else:
-                proc.kill()
 
-
-def build_command(engine, folders, options, db_path, out_file):
+def build_command(engine, folders, options, db, out_file, gpu=False):
     cmd = [engine, "scan-and-compare"]
     for folder in folders:
         cmd += ["-i", str(folder)]
     if not options.recursive:
         cmd.append("--no-subdirs")
-    cmd += ["--percent", f"{options.percent:g}", "--db", str(db_path),
+    cmd += ["--percent", f"{options.percent:g}", "--db", str(db),
             "--checkpoint-interval", "1",  # save fingerprints every minute, so stopping loses little
             "--format", "json", "--output", str(out_file)]
+    if gpu:
+        cmd += ["--hardware-accel", "cuda"]
     if options.audio:
         cmd += ["--partial-clip-detection",
                 "--partial-clip-min-ratio", f"{options.audio_ratio:.2f}",
@@ -325,26 +361,33 @@ def build_command(engine, folders, options, db_path, out_file):
 
 STAGE_RE = re.compile(r"\(([^()]*?)\s+(\d+)/(\d+)\)\s*$")  # trailing "(Hashing 3/100)" on a progress line
 POS_RE = re.compile(r"\]\s+(\d+)/(\d+)")                  # the overall "pos/max" after the percentage
+ETA_RE = re.compile(r"(?:ETA|remaining)[:\s]+(\d+):(\d{2}):(\d{2})", re.I)
 
 
 def parse_progress(line):
-    """(done, total, stage) from a progress line, or None. The engine restarts its count for each stage,
-    so the stage's own numbers are used when it reports them; otherwise the overall count."""
+    """(done, total, stage, eta seconds or None) from a progress line, or None. The engine restarts its count
+    for each stage, so the stage's own numbers are used when it reports them; otherwise the overall count."""
     if not PROGRESS_RE.search(line):
         return None
+    eta = None
+    m = ETA_RE.search(line)
+    if m:
+        eta = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
     stage = STAGE_RE.search(line)
     if stage:
-        return int(stage.group(2)), int(stage.group(3)), stage.group(1).strip() or "Scanning"
+        return int(stage.group(2)), int(stage.group(3)), stage.group(1).strip() or "Scanning", eta
     pos = POS_RE.search(line)
     if pos:
-        return int(pos.group(1)), int(pos.group(2)), "Scanning"
+        return int(pos.group(1)), int(pos.group(2)), "Scanning", eta
     return None
 
 
 def run_engine(cmd, state, log, progress):
-    """Run the CLI, stream its output to the log and report progress. Returns the exit code."""
-    state.proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE, creationflags=_NO_WINDOW)
+    """Run the CLI, stream its output to the log and report progress. Returns the exit code.
+    progress(done, total, stage, eta) gets the stage's own count and the engine's own time estimate."""
+    state.proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  creationflags=_NO_WINDOW, env=engine_env())
+    jobs.register_process(state.proc)
     try:
         # Progress is written with carriage returns, so split on both \r and \n.
         buffer = ""
@@ -362,10 +405,13 @@ def run_engine(cmd, state, log, progress):
                     continue
                 parsed = parse_progress(line)
                 if parsed:
-                    done, total, stage = parsed
+                    done, total, stage, eta = parsed
                     if (done, total, stage) != last and total > 0:
                         last = (done, total, stage)
-                        progress(done, total, stage)
+                        try:
+                            progress(done, total, stage, eta)
+                        except jobs.JobStopped:
+                            pass  # the job is ending the engine; keep draining its output
                 elif not line.startswith("Results written"):
                     log(line)
         state.proc.stdout.read()  # drain
@@ -416,8 +462,8 @@ def _normal(path):
     return os.path.normcase(os.path.abspath(str(path)))
 
 
-def group_key(paths):
-    return hashlib.sha1("\n".join(sorted(_normal(p) for p in paths)).encode("utf-8")).hexdigest()
+def group_key(paths_):
+    return hashlib.sha1("\n".join(sorted(_normal(p) for p in paths_)).encode("utf-8")).hexdigest()
 
 
 def read_results(json_path):
@@ -462,12 +508,41 @@ def filter_ignored(groups, ignored):
     return [g for g in groups if g["key"] not in ignored]
 
 
-# ---------- single-file checks (Mode B) ----------
-def check_files_against_library(files, library, cfg, state, log, progress, db_path):
+# ---------- saved results ----------
+def _plain(groups):
+    return [{"key": g["key"], "items": [dict(i, flags=sorted(i.get("flags", ()))) for i in g["items"]]}
+            for g in groups]
+
+
+def _from_plain(plain):
+    groups = []
+    for g in plain or []:
+        items = [dict(i, flags=set(i.get("flags", ()))) for i in g.get("items", []) if Path(i["path"]).exists()]
+        if len(items) >= 2:
+            if not any(i.get("best") for i in items):
+                max(items, key=lambda i: (i["pixels"], i["bitrate"], i["size"]))["best"] = True
+            groups.append({"key": g["key"], "items": items})
+    return groups
+
+
+def save_results(kind, groups):
+    """kind: "folder" or "library". Kept so results are still there after the app is closed."""
+    try:
+        fileops.write_json(data_dir() / f"{kind}_results.json", _plain(groups))
+    except OSError:
+        pass
+
+
+def load_results(kind):
+    return _from_plain(fileops.read_json(data_dir() / f"{kind}_results.json", []))
+
+
+# ---------- one or more picked videos against a library ----------
+def check_files_against_library(files, library, cfg, state, log, progress, db, gpu=False):
     """Scan the library together with a temp folder holding hardlinks (or copies) of the picked files,
     then keep only groups that contain a picked file. The temp folder is always removed afterwards."""
     engine = find_engine()
-    temp = data_dir() / "tmp" / uuid.uuid4().hex
+    temp = temp_dir() / uuid.uuid4().hex
     temp.mkdir(parents=True)
     picked = {}  # temp path (normalised) -> original path
     try:
@@ -475,38 +550,36 @@ def check_files_against_library(files, library, cfg, state, log, progress, db_pa
             target = temp / f"{index:03d}_{Path(original).name}"
             try:
                 os.link(original, target)  # same drive: no extra disk space
-                how = "hardlink"
+                how = "link"
             except OSError:
-                shutil.copy2(original, target)  # other drive: a plain copy
+                shutil.copy2(original, target)  # another drive: a plain copy
                 how = "copy"
             picked[_normal(target)] = str(original)
             log(f"Prepared {Path(original).name} as a {how} for the check.")
-
         out_file = temp / "results.json"
-        cmd = build_command(engine, [library, temp], cfg, db_path, out_file)
+        cmd = build_command(engine, [library, temp], cfg, db, out_file, gpu)
         code = run_engine(cmd, state, log, progress)
         if state.cancelled:
-            return []
+            return None
         if code != 0 or not out_file.exists():
-            raise RuntimeError(f"The engine stopped with code {code}. See the lines above.")
+            raise EngineFailed(code)
         groups = read_results(out_file)
     finally:
         shutil.rmtree(temp, ignore_errors=True)  # only our temp links/copies; the originals are untouched
 
     kept = []
+    originals = {_normal(v) for v in picked.values()}
     for group in groups:
-        has_picked = any(_normal(i["path"]) in picked for i in group["items"])
-        if not has_picked:
+        if not any(_normal(i["path"]) in picked for i in group["items"]):
             continue  # drop duplicates that exist only inside the library
         items = []
-        originals = {_normal(v) for v in picked.values()}
         for item in group["items"]:
             key = _normal(item["path"])
             if key in picked:
                 original = picked[key]
                 item = dict(item, path=original, name=Path(original).name, folder=str(Path(original).parent),
                             picked=True)
-            elif _normal(item["path"]) in originals:
+            elif key in originals:
                 continue  # the library copy of a picked file would show up twice
             items.append(item)
         if len(items) >= 2:
@@ -514,22 +587,10 @@ def check_files_against_library(files, library, cfg, state, log, progress, db_pa
     return kept
 
 
-def check_files_one_by_one(files, library, cfg, state, log, progress, db_path, on_file_done):
-    """Check each picked video on its own, so its results can be shown as soon as it is done.
-    on_file_done(path, groups) is called after every video. Stops between videos when cancelled.
-    The library's fingerprints are saved after the first video, so later videos only redo the comparison."""
-    for index, path in enumerate(files):
-        if state.cancelled:
-            return
-
-        def file_progress(done, total, stage, index=index):
-            progress(done, total, stage, index)
-
-        log(f"Checking video {index + 1} of {len(files)}: {Path(path).name}")
-        groups = check_files_against_library([path], library, cfg, state, log, file_progress, db_path)
-        if state.cancelled:
-            return
-        on_file_done(path, groups)
+class EngineFailed(RuntimeError):
+    def __init__(self, code):
+        super().__init__(f"The engine stopped with code {code}. The log shows its last lines.")
+        self.code = code
 
 
 # ---------- acting on results ----------
@@ -540,73 +601,54 @@ def delete_log_path():
     return data_dir() / "deletions.csv"
 
 
-def keep_one(group, keep_path, log):
-    """Send every other copy in the group to the Recycle Bin and log it. Returns how many were sent."""
-    from send2trash import send2trash
+def recycle_files(entries, log, progress=None):
+    """entries: [(path, kept_path, match, similarity)]. Sends each to the Recycle Bin (never a permanent
+    delete) and writes it to deletions.csv. Stops at the first file the Recycle Bin can't take.
+    Returns the paths sent."""
     log_file = delete_log_path()
     write_header = not log_file.exists()
-    sent = 0
+    sent = []
+    total = len(entries)
     with open(log_file, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         if write_header:
             writer.writerow(DELETE_LOG_HEADER)
-        for item in group["items"]:
-            if _normal(item["path"]) == _normal(keep_path):
+        for n, (path, kept, match, similarity) in enumerate(entries):
+            if progress:
+                progress(n, total, f"Sending {Path(path).name} to the Recycle Bin")
+            if not os.path.exists(path):
+                log(f"Skipped (already gone): {path}")
                 continue
-            if not os.path.exists(item["path"]):
-                log(f"Skipped (already gone): {item['path']}")
-                continue
-            size = os.path.getsize(item["path"])
-            send2trash(item["path"])
-            writer.writerow([datetime.now().isoformat(timespec="seconds"), "Recycle Bin", item["path"], size,
-                             keep_path, item["match"], f"{item['similarity']:.2f}"])
-            log(f"Recycle Bin: {item['path']}")
-            sent += 1
+            size = os.path.getsize(path)
+            fileops.recycle(path)  # raises RecycleError: the file stays and we stop
+            writer.writerow([datetime.now().isoformat(timespec="seconds"), "Recycle Bin", path, size, kept or "",
+                             match or "", f"{similarity:.2f}" if similarity else ""])
+            f.flush()
+            log(f"Recycle Bin: {path}")
+            sent.append(path)
     return sent
 
 
-def extract_thumbnail(path, duration, width=160):
-    """A PIL image of a frame from the middle of the video, or None."""
-    from gif_maker import extract_frame
-    return extract_frame(path, max(duration / 2, 0), max_width=width)
+def keep_one_entries(group, keep_path):
+    """The recycle entries for "keep this copy": every other copy in the group."""
+    return [(i["path"], keep_path, i["match"], i["similarity"]) for i in group["items"]
+            if _normal(i["path"]) != _normal(keep_path)]
 
 
 def format_seconds(seconds):
     seconds = int(seconds)
     h, rem = divmod(seconds, 3600)
     m, s = divmod(rem, 60)
-    return f"{h:02d}:{m:02d}:{s:02d}"
+    return f"{h:d}:{m:02d}:{s:02d}" if h else f"{m:d}:{s:02d}"
 
 
-def recycle_files(paths, log):
-    """Send files to the Recycle Bin (never permanently deleted) and log each one. Returns the paths sent."""
-    from send2trash import send2trash
-    log_file = delete_log_path()
-    write_header = not log_file.exists()
-    sent = []
-    with open(log_file, "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        if write_header:
-            writer.writerow(DELETE_LOG_HEADER)
-        for path in paths:
-            if not os.path.exists(path):
-                log(f"Skipped (already gone): {path}")
-                continue
-            size = os.path.getsize(path)
-            send2trash(path)
-            writer.writerow([datetime.now().isoformat(timespec="seconds"), "Recycle Bin", path, size, "", "", ""])
-            log(f"Recycle Bin: {path}")
-            sent.append(path)
-    return sent
-
-
-def plan_moves(groups, group_keys, file_paths):
+def plan_moves(groups, group_keys, file_paths, target):
     """What to move or copy, and where it goes inside the chosen folder.
 
-    - A file in a selected group goes into that group's subfolder ("Group N - name"). If the file is in more
-      than one group, it is copied (not moved), so every group keeps its own copy.
-    - A file selected on its own goes into the top of the chosen folder (copied if it is in several groups).
-    Returns a list of {"src", "sub", "copy"} dicts."""
+    - A file in a chosen group goes into that group's subfolder ("Group N - name"). If the file is in more
+      than one group, it's copied (not moved), so every group keeps its own copy.
+    - A file chosen on its own goes into the top of the folder (copied if it's in several groups).
+    Returns [{"src", "dst_dir", "copy"}] for the review dialog."""
     membership = {}
     for group in groups:
         for item in group["items"]:
@@ -620,45 +662,40 @@ def plan_moves(groups, group_keys, file_paths):
         sub = f"Group {number} - {Path(best['path']).stem}"
         for item in group["items"]:
             k = _normal(item["path"])
-            ops.append({"src": item["path"], "sub": sub, "copy": membership.get(k, 0) > 1})
+            ops.append({"src": item["path"], "dst_dir": str(Path(target) / sub), "copy": membership.get(k, 0) > 1})
             handled.add(k)
     for path in file_paths:
         k = _normal(path)
         if k in handled:
             continue
         handled.add(k)
-        ops.append({"src": path, "sub": None, "copy": membership.get(k, 0) > 1})
+        ops.append({"src": path, "dst_dir": str(target), "copy": membership.get(k, 0) > 1})
     return ops
 
 
-def _unique_name(folder, name):
-    """name, or name with " (2)", " (3)"... before the extension if that name is taken."""
-    if not (folder / name).exists():
-        return name
-    stem, suffix = Path(name).stem, Path(name).suffix
-    n = 2
-    while (folder / f"{stem} ({n}){suffix}").exists():
-        n += 1
-    return f"{stem} ({n}){suffix}"
-
-
-def execute_moves(ops, target, log):
-    """Carry out plan_moves. Returns the source paths that were moved (copies leave their source in place)."""
-    moved = []
-    for op in ops:
-        src = Path(op["src"])
-        if not src.exists():
-            log(f"Skipped (already gone): {src}")
-            continue
-        folder = Path(target) / op["sub"] if op["sub"] else Path(target)
-        folder.mkdir(parents=True, exist_ok=True)
-        if op["copy"]:
-            name = _unique_name(folder, f"{src.stem} (copy){src.suffix}")
-            shutil.copy2(src, folder / name)
-            log(f"Copied {src.name} -> {folder / name}")
-        else:
-            name = _unique_name(folder, src.name)
-            shutil.move(str(src), str(folder / name))
-            moved.append(str(src))
-            log(f"Moved {src.name} -> {folder / name}")
+def execute_moves(ops, log, progress=None):
+    """Carry out the reviewed moves; a taken name gets " (2)". Every move and copy goes into the move log so
+    it can be undone. Returns the source paths that were moved (copies leave their source in place)."""
+    moved, done = [], []
+    total = len(ops)
+    try:
+        for n, op in enumerate(ops):
+            src = Path(op["src"])
+            if progress:
+                progress(n, total, f"{'Copying' if op['copy'] else 'Moving'} {src.name}")
+            if not src.exists():
+                log(f"Skipped (already gone): {src}")
+                continue
+            if op["copy"]:
+                dst = fileops.copy_file(src, op["dst_dir"])
+                done.append(("copy", src, dst))
+                log(f"Copied {src.name} \u2192 {dst}")
+            else:
+                dst = fileops.move_file(src, op["dst_dir"])
+                done.append(("move", src, dst))
+                moved.append(str(src))
+                log(f"Moved {src.name} \u2192 {dst}")
+    finally:
+        movelog.record("Duplicate videos", f"Moved {len(moved)} and copied {len(done) - len(moved)} duplicate(s)",
+                       done)
     return moved

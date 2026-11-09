@@ -1,8 +1,7 @@
 @echo off
-rem Builds MediaToolbox.exe in the dist folder. Run from this folder.
+rem Builds dist\MediaToolbox.exe. Put ffmpeg.exe and ffprobe.exe in this folder first so they're bundled.
 pip install -r requirements.txt
-pyinstaller --noconsole --onefile --name MediaToolbox --add-data "fonts;fonts" main.py
-echo.
-echo Done. The app is at dist\MediaToolbox.exe
-echo Make sure ffmpeg and ffprobe are on your PATH (or copy them next to the exe).
+pyinstaller --noconsole --onefile --name MediaToolbox --add-data "fonts;fonts" --add-binary "ffmpeg.exe;." --add-binary "ffprobe.exe;." main.py
+dist\MediaToolbox.exe --selftest selftest
+type selftest\selftest.txt
 pause
