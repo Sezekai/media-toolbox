@@ -122,10 +122,12 @@ class KeysPopup(QWidget):
             head = label(title, "heading")
             head.setParent(self.body)
             self.blocks.append((head, True))
-            for key, does in rows:
-                row = QWidget(self.body)
+            for n, (key, does) in enumerate(rows):
+                row = QFrame(self.body)
+                row.setObjectName("keyrow")
+                row.setProperty("alt", "true" if n % 2 == 0 else "false")  # every other row shaded
                 h = QHBoxLayout(row)
-                h.setContentsMargins(0, 0, 0, 0)
+                h.setContentsMargins(8, 4, 8, 4)
                 h.setSpacing(10)
                 cap_box = QWidget()
                 cap_box.setFixedWidth(KEY_W)
@@ -148,7 +150,7 @@ class KeysPopup(QWidget):
     def _columns(self, limit):
         """Fill columns top to bottom, each at most limit tall. A heading never ends a column."""
         cols, cur, used = [], [], 0
-        spacing_row, spacing_head = 6, 14
+        spacing_row, spacing_head = 0, 14
         items = self.blocks
         for i, (w, is_head) in enumerate(items):
             h = self._height(w)

@@ -387,10 +387,8 @@ class TintDelegate(QStyledItemDelegate):
             painter.fillRect(QRect(left, r.top(), r.right() - left + 1, r.height()), bg)
         super().paint(painter, option, index)
         if option.state & QStyle.StateFlag.State_Selected:
+            # The outline is drawn as solid bands inside the row, so no edge falls outside the view and gets cut.
             view = self.parent()
-            painter.save()
-            painter.setPen(QPen(QColor(theme.ACCENT), 1))
-            right = r.right()
             if hasattr(view, "header"):
                 cols = view.header().count()
             elif hasattr(view, "horizontalHeader"):
@@ -398,14 +396,16 @@ class TintDelegate(QStyledItemDelegate):
             else:
                 cols = 1
             last = index.column() == cols - 1
-            if last and view is not None:
-                right = view.viewport().width() - 1
-            painter.drawLine(left, r.top(), right, r.top())
-            painter.drawLine(left, r.bottom(), right, r.bottom())
+            right = (view.viewport().width() if last and view is not None else r.right() + 1)
+            colour = QColor(theme.OUTLINE)
+            ow = theme.OUTLINE_W
+            painter.save()
+            painter.fillRect(QRect(left, r.top(), right - left, ow), colour)
+            painter.fillRect(QRect(left, r.bottom() + 1 - ow, right - left, ow), colour)
             if index.column() == 0:
-                painter.drawLine(0, r.top(), 0, r.bottom())
+                painter.fillRect(QRect(0, r.top(), ow, r.height()), colour)
             if last:
-                painter.drawLine(right, r.top(), right, r.bottom())
+                painter.fillRect(QRect(right - ow, r.top(), ow, r.height()), colour)
             painter.restore()
 
 

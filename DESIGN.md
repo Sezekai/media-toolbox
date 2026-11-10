@@ -140,7 +140,10 @@ When an app lets the owner group things, each group may carry a colour: categori
 - **Window buttons:** the system's minimise, maximise and close buttons sit on the right and follow the theme (background `ground`, symbols `sec`).
   - **Electron:** `titleBarStyle: 'hidden'` plus `titleBarOverlay`, updated with `setTitleBarOverlay` whenever the theme changes. Make the overlay 31 px tall (1 px shorter than the strip), so the line underneath shows under the buttons.
   - **WPF:** `WindowChrome`.
-  - **PySide6:** a frameless window with your own three buttons.
+  - **PySide6:** a frameless window with your own three buttons, which still hands the frame's behaviour to Windows (see below).
+- **Windows behaviour stays:** the window snaps to screen edges and corners, maximises when dragged to the top, restores when a maximised window is dragged, offers snap layouts and the system menu, keeps its shadow, and resizes from every edge. A maximised window never covers the taskbar.
+  - **Electron and WPF** keep this with the options above.
+  - **PySide6:** keep `WS_THICKFRAME`, `WS_CAPTION` and the maximise box on the window, extend the frame into the client area (DWM margins of −1) for the shadow, answer `WM_NCCALCSIZE` so the whole window is client area (insetting by the resize border when maximised), and answer `WM_NCHITTEST` with the edges and `HTCAPTION` for the draggable part of the strip. Media Toolbox's `shell.py` does this.
 - **Full screen:** hides the strip.
 
 ### Rail (64 px)
@@ -316,9 +319,14 @@ The **Look** item at the bottom of the rail opens it.
 - **Density:** Compact, Comfortable or Roomy, plus sliders for control and row height.
 - **Button style:** Flat (default) or Glow (a soft accent glow on the primary and active buttons).
 
+### Outline and highlight
+
+- **Outline:** the line around whatever is selected or has the keyboard's focus (rows, cards, tiles, buttons, fields). Its colour is the accent unless the person picks another, and its width is 1–4 px (default 2). A selected row's outline runs unbroken around the whole row, including a tree's indent, and sits inside the row so the view's edge never cuts it.
+- **Highlight:** the tint behind selected, ticked and chosen things (12% for selected, 17% for ticked). Its colour is the accent unless the person picks another.
+
 ### Behaviour
 
-- **Reset to default** brings back Obsidian, Lime → Teal, Inter, Standard, Compact and Flat. Saved themes stay.
+- **Reset to default** brings back Obsidian, Lime → Teal, Inter, Standard, Compact, Flat, and the accent for the outline (2 px) and highlight. Saved themes stay.
 - **Live changes:** everything applies as it changes. Pickers and sliders update in place without redrawing the form.
 - **Storage:**
   - The current look, the active theme and the saved themes are kept in `appearance.json` in `%LOCALAPPDATA%\<App>`, so updates keep them.
@@ -342,7 +350,9 @@ The same format in every app, so a theme exported from one can be imported into 
   "font": { "family": "Inter", "size": 13 },
   "corners": { "control": 6, "panel": 10 },
   "density": { "control": 28, "row": 24 },
-  "buttons": { "style": "flat" }
+  "buttons": { "style": "flat" },
+  "outline": { "colour": "", "width": 2 },
+  "highlight": { "colour": "" }
 }
 ```
 
@@ -353,6 +363,7 @@ Reading a theme:
 - Accent: 1 to 4 stops, angle 0–360. `onAccent` is `auto`, `dark` or `light`.
 - Limits: font size 11–16, control radius 0–16, panel radius 0–24, control height 24–44, row height 20–40.
 - `buttons.style` is `flat` or `glow`. An older theme without it is `flat`.
+- `outline.colour` and `highlight.colour` are a colour, or empty for the accent. `outline.width` is 1–4. An older theme without them uses the accent and 2 px.
 - A font named in a theme that isn't available falls back to Inter.
 
 **Working code:** `lib/theme.js` and `renderer/fonts` in the `Sezekai/waifu2x-batch` repo implement this theme engine: presets, contrast checks, theme files and fonts. Copy them for an Electron app. Add the Indigo preset and the button style, which that app doesn't have.

@@ -93,6 +93,8 @@ DEFAULT_THEME = {
     "corners": {"control": 6, "panel": 10},
     "density": {"control": 28, "row": 24},
     "buttons": {"style": "flat"},
+    "outline": {"colour": "", "width": 2},   # focus rings and the selected item's outline; "" = the accent
+    "highlight": {"colour": ""},             # the tint behind selected, ticked and chosen things; "" = the accent
 }
 
 # Version 1's look, saved as a theme so it is one click away.
@@ -155,6 +157,9 @@ def normalize(t):
         "density": {"control": _clamp(part("density").get("control"), 24, 44, 28),
                     "row": _clamp(part("density").get("row"), 20, 40, 24)},
         "buttons": {"style": style if style in ("flat", "glow") else "flat"},
+        "outline": {"colour": _color(part("outline").get("colour"), "") or "",
+                    "width": _clamp(part("outline").get("width"), 1, 4, 2)},
+        "highlight": {"colour": _color(part("highlight").get("colour"), "") or ""},
     }
 
 

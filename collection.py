@@ -374,7 +374,7 @@ class GridDelegate(QStyledItemDelegate):
         card = QPainterPath()
         card.addRoundedRect(r, theme.R_PANEL, theme.R_PANEL)
         p.fillPath(card, QColor(theme.TINT_TICK if item["ticked"] else theme.RAISED))
-        p.setPen(QPen(QColor(theme.ACCENT if selected else theme.LINE), 2 if selected else 1))
+        p.setPen(QPen(QColor(theme.OUTLINE if selected else theme.LINE), theme.OUTLINE_W if selected else 1))
         p.drawPath(card)
         thumb = QRect(r.x() + 6, r.y() + 6, r.width() - 12, int(s * 0.75))
         clip = QPainterPath()

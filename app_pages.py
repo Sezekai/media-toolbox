@@ -121,6 +121,78 @@ def option(layout, title, note, *controls):
     layout.addSpacing(6)
 
 
+def group(layout, title, note=""):
+    """A heading over a group of settings."""
+    if layout.count():
+        layout.addSpacing(12)
+    head = QHBoxLayout()
+    head.setContentsMargins(2, 0, 2, 2)
+    head.setSpacing(10)
+    head.addWidget(label(title, "heading"))
+    if note:
+        head.addWidget(ElidedLabel(note, "caption"), 1)
+    else:
+        head.addStretch(1)
+    layout.addLayout(head)
+
+
+class SettingRow(QFrame):
+    """One setting as its own card: the name and a short note, with its controls on the same card. When the
+    card is too narrow for both side by side, the controls go under the text instead of squeezing it."""
+    TEXT_MIN = 240
+
+    def __init__(self, title, note, controls, tip=None, elide=False):
+        super().__init__()
+        self.setObjectName("setrow")
+        from PySide6.QtWidgets import QBoxLayout, QSizePolicy
+        # The two columns share the width equally; a narrow card stacks its controls instead of widening.
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.box = QBoxLayout(QBoxLayout.LeftToRight, self)
+        self.box.setContentsMargins(12, 7, 8, 7)
+        self.box.setSpacing(12)
+        text = QVBoxLayout()
+        text.setSpacing(1)
+        self.title_row = QHBoxLayout()
+        self.title_row.setSpacing(8)
+        t = label(title, "value")
+        t.setStyleSheet("font-weight: 600;")
+        if tip:
+            t.setToolTip(tip)
+            self.setToolTip(tip)
+        self.title_row.addWidget(t)
+        self.title_row.addStretch(1)
+        text.addLayout(self.title_row)
+        self.elide = elide  # an elided note (a path) can be short, so the controls stay beside it longer
+        self.note = ElidedLabel(note, "caption", Qt.ElideMiddle) if elide else label(note, "caption", wrap=True)
+        text.addWidget(self.note)
+        self.box.addLayout(text, 1)
+        self.controls = QWidget()
+        ch = QHBoxLayout(self.controls)
+        ch.setContentsMargins(0, 0, 0, 0)
+        ch.setSpacing(theme.GAP)
+        for c in controls:
+            ch.addWidget(c, 0, Qt.AlignVCenter)
+        self.box.addWidget(self.controls, 0, Qt.AlignVCenter)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        from PySide6.QtWidgets import QBoxLayout
+        need = self.controls.sizeHint().width() + (150 if self.elide else self.TEXT_MIN) + 32
+        stacked = self.width() < need
+        want = QBoxLayout.TopToBottom if stacked else QBoxLayout.LeftToRight
+        if self.box.direction() != want:
+            self.box.setDirection(want)
+            self.box.setAlignment(self.controls, (Qt.AlignLeft if stacked else Qt.AlignVCenter))
+            self.box.setSpacing(6 if stacked else 12)
+
+
+def setting(layout, title, note, *controls, tip=None, elide=False):
+    """Add a SettingRow. Returns (the card, its note label)."""
+    frame = SettingRow(title, note, controls, tip, elide)
+    layout.addWidget(frame)
+    return frame, frame.note
+
+
 def buttons_row(layout, *buttons_):
     host, flow = widgets.wrap_row()
     flow._center = False
@@ -138,104 +210,91 @@ class SettingsPage(Page):
 
     def build(self):
         saved = settings.load()
+        area = QScrollArea()  # only scrolls when the window is too short for everything
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        host = QWidget()
+        cols = QHBoxLayout(host)
+        cols.setContentsMargins(0, 0, 0, 0)
+        cols.setSpacing(theme.PAGE + 4)
+        left, right = QVBoxLayout(), QVBoxLayout()
+        for c in (left, right):
+            c.setSpacing(4)
+            cols.addLayout(c, 1)
+        area.setWidget(host)
+        self.body.addWidget(area, 1)
 
         # ----- the app -----
-        app_box = Box("The app")
-        app_v = app_box.v
+        group(left, "The app")
         self.click = Segmented([("select", "Selects it"), ("tick", "Ticks it")],
                                "tick" if saved.get("click_ticks") else "select")
         self.click.changed.connect(lambda val: settings.save({"click_ticks": val == "tick"}))
-        option(app_v, "When you click an item", "Ctrl+click and the tick box always tick. Actions use the ticked "
-               "items, or the selected one when nothing is ticked.", self.click)
-        self.hover = QCheckBox("Play silent previews")
+        setting(left, "When you click an item", "Ctrl+click and the tick box always tick.", self.click)
+        self.hover = QCheckBox("On")
         self.hover.setChecked(saved.get("hover_previews", True))
         self.hover.toggled.connect(lambda on: settings.save({"hover_previews": on}))
-        option(app_v, "Duplicate cards", "A silent preview plays while the pointer rests on a copy. One at a time; off "
-               "in safe mode." + ("" if preview.AVAILABLE else " Video playback isn't available on this PC."),
-               self.hover)
+        setting(left, "Silent previews on duplicate cards", "Play while the pointer rests on a copy. Off in safe mode."
+                + ("" if preview.AVAILABLE else " Not available on this PC."), self.hover)
         self.use = Segmented([("auto", "Auto"), ("gpu", "GPU"), ("cpu", "CPU")], saved.get("gpu_use", "auto"))
         self.use.changed.connect(self._gpu_changed)
-        option(app_v, "Decode videos for duplicate scans on", "Auto uses an NVIDIA GPU when there is one. If GPU "
-               "decoding fails, the scan runs on the CPU instead.", self.use)
-        self.gpu_found = label("Looking for a GPU\u2026", "caption", wrap=True)
-        app_v.addWidget(self.gpu_found)
-        app_box.finish()
+        _f, self.gpu_found = setting(left, "Decode duplicate scans on", "Looking for a GPU\u2026", self.use)
 
         # ----- the engine -----
-        eng_box = Box("Duplicate engine")
-        eng_v = eng_box.v
-        eng_v.addWidget(label("vdf-cli by 0x90d (AGPL). Downloaded when you ask, never bundled.", "caption",
-                              wrap=True))
-        self.engine_status = label("", "value", wrap=True)
-        self.ffmpeg_status = label("", "caption", wrap=True)
-        eng_v.addWidget(self.engine_status)
-        eng_v.addWidget(self.ffmpeg_status)
+        group(left, "Duplicate engine")
         self.install_btn = button("Install engine\u2026")
         self.install_btn.clicked.connect(lambda: engine_ui.install(self.app))
         self.update_btn = button("Check for an update")
         self.update_btn.clicked.connect(lambda: engine_ui.install(self.app, update=True))
         self.ffmpeg_btn = button("Get FFmpeg\u2026")
         self.ffmpeg_btn.clicked.connect(lambda: engine_ui.install_ffmpeg(self.app))
-        buttons_row(eng_v, self.install_btn, self.update_btn, self.ffmpeg_btn)
-        eng_v.addWidget(widgets.hline())
-        eng_v.addWidget(label("Checks", "value"))
-        eng_v.addWidget(label("Diagnose checks everything the app needs. Repair fixes what's safe to fix: temporary "
-                              "files, missing folders, the FFmpeg copy. Copy report is for bug reports.", "caption",
-                              wrap=True))
+        _f, self.engine_status = setting(left, "vdf-cli (AGPL)", "", self.install_btn, self.update_btn,
+                                         self.ffmpeg_btn)
         diag = button("Diagnose", icon=icons.icon("wrench", theme.TEXT, 16))
         diag.clicked.connect(self.diagnose)
         rep = button("Repair")
         rep.clicked.connect(self.repair)
-        copy = button("Copy report", "ghost", icon=icons.icon("copy", theme.SEC, 16),
-                      tip="Also saved in the logs folder")
+        copy = button("Copy report", icon=icons.icon("copy", theme.TEXT, 16), tip="Also saved in the logs folder")
         copy.clicked.connect(self.copy_report)
-        buttons_row(eng_v, diag, rep, copy)
-        self.findings_host = QVBoxLayout()
+        setting(left, "Checks", "Diagnose checks what the app needs; Repair fixes what's safe to fix.", diag, rep,
+                copy)
+        self.findings_frame = QFrame()
+        self.findings_frame.setObjectName("setrow")
+        self.findings_host = QVBoxLayout(self.findings_frame)
+        self.findings_host.setContentsMargins(12, 8, 12, 8)
         self.findings_host.setSpacing(4)
-        eng_v.addLayout(self.findings_host)
+        self.findings_frame.hide()
+        left.addWidget(self.findings_frame)
         self.findings = []
         engine_ui.on_change(self.refresh_engine)
-        eng_box.finish()
 
         # ----- about -----
-        ab_box = Box("About")
-        ab_box.v.addWidget(label(f"Media Toolbox {version.__version__} \u00b7 one portable program. FFmpeg is "
-                                 "bundled (builds from gyan.dev).", "muted", wrap=True))
-        logs_btn = button("Open the logs folder", "ghost", icon=icons.icon("folder", theme.SEC, 16))
+        group(left, "About")
+        logs_btn = button("Open the logs folder", icon=icons.icon("folder", theme.TEXT, 16))
         logs_btn.clicked.connect(lambda: open_path(paths.logs_dir()))
-        buttons_row(ab_box.v, logs_btn)
-        ab_box.finish()
+        setting(left, f"Media Toolbox {version.__version__}", "One portable program. FFmpeg is bundled.", logs_btn)
+        left.addStretch(1)
 
         # ----- storage -----
-        st_box = Box("Storage")
-        st_box.v.addWidget(label("Where the app keeps things. Move any of them to another drive; the old copy goes "
-                                 "to the Recycle Bin once the new one is checked.", "caption", wrap=True))
+        group(right, "Storage", "Move any place to another drive. The old copy goes to the Recycle Bin once the "
+              "new one is checked.")
         self.storage_host = QVBoxLayout()
-        self.storage_host.setSpacing(theme.GAP)
-        st_box.v.addLayout(self.storage_host)
+        self.storage_host.setSpacing(4)
+        right.addLayout(self.storage_host)
         self.size_labels = {}
         self._fill_storage()
-        st_box.finish()
 
         # ----- reset -----
-        rs_box = Box("Reset")
-        rs_box.v.addWidget(label("Each part asks first. Nothing here touches your videos or pictures.", "caption",
-                                 wrap=True))
+        group(right, "Reset", "Each asks first. Nothing here touches your videos or pictures.")
         for title, note, fn in (
-                ("Settings and sizes", "Choices, folder lists, box and column sizes and the window size go back to "
-                 "how they started. The look and storage places stay.", self.reset_settings),
-                ("Checked videos and ignored groups", "Videos already checked against the library, groups you "
-                 "ignored, and saved duplicate results are forgotten, so they can come back.", self.reset_dups),
-                ("Move log", "Clears the list of moves. Moves already made can't be undone afterwards.",
-                 self.reset_moves)):
+                ("Settings and sizes", "Choices, folder lists, box, column and window sizes. The look and storage "
+                 "places stay.", self.reset_settings),
+                ("Checked videos and ignored groups", "Lets them come back in duplicate scans.", self.reset_dups),
+                ("Move log", "Moves already made can't be undone afterwards.", self.reset_moves)):
             b = button("Reset\u2026", "danger-ghost")
             b.clicked.connect(fn)
-            option(rs_box.v, title, note, b)
-        rs_box.finish()
-
-        left = splitter("settings_left", Qt.Vertical, [app_box, eng_box, ab_box], [300, 360, 110], fit=True)
-        right = splitter("settings_right", Qt.Vertical, [st_box, rs_box], [520, 260], fit=True)
-        self.body.addWidget(splitter("settings_cols", Qt.Horizontal, [left, right], [600, 600]), 1)
+            setting(right, title, note, b)
+        right.addStretch(1)
         self.refresh_engine()
 
     def shown(self):
@@ -266,7 +325,8 @@ class SettingsPage(Page):
             self.install_btn.setText("Install engine\u2026")
         self.update_btn.setVisible(bool(engine))
         ok, text = de.ffmpeg_ready()
-        self.ffmpeg_status.setText(f"FFmpeg for the engine: {text}.")
+        if not ok:
+            self.engine_status.setText(self.engine_status.text_full() + f" FFmpeg for it: {text}.")
         self.ffmpeg_btn.setVisible(not ok)
         self.app.set_attention("dup", not engine)
 
@@ -284,6 +344,7 @@ class SettingsPage(Page):
                 w.deleteLater()
         for f in self.findings:
             self.findings_host.addWidget(Finding(f))
+        self.findings_frame.setVisible(bool(self.findings))
         bad = sum(1 for f in self.findings if f["kind"] != "ok")
         self.app.toast("Everything checked out." if not bad else f"{bad} thing(s) need a look.",
                        "ok" if not bad else "warn")
@@ -315,36 +376,30 @@ class SettingsPage(Page):
                 w.hide()
                 w.deleteLater()
         self.size_labels = {}
-        for n, place in enumerate(paths.PLACES):
-            block = QWidget()
-            v = QVBoxLayout(block)
-            v.setContentsMargins(0, 0, 0, 0)
-            v.setSpacing(2)
-            if n:
-                v.addWidget(widgets.hline())
-                v.addSpacing(4)
-            top = QHBoxLayout()
-            top.addWidget(label(place.title, "value"))
-            top.addStretch(1)
-            size = label("Working out\u2026", "caption")
-            top.addWidget(size)
-            self.size_labels[place.key] = size
-            v.addLayout(top)
-            v.addWidget(label(place.note, "caption", wrap=True))
-            missing = place.missing()
-            v.addWidget(ElidedLabel(str(place.path()) + ("  (drive not connected)" if missing else ""),
-                                    "danger" if missing else "mono", Qt.ElideMiddle))
-            open_b = button("Open folder", "ghost")
+        for place in paths.PLACES:
+            open_b = button("Open", tip="Open this folder")
             open_b.clicked.connect(lambda _c=False, p=place: open_path(paths.place(p.key)))
-            move_b = button("Move\u2026", "ghost")
+            move_b = button("Move\u2026", tip="Move it to another folder or drive")
             move_b.clicked.connect(lambda _c=False, p=place: self.move_place(p))
-            row = [open_b, move_b]
-            if place.cache:
-                clear_b = button("Clear", "ghost", tip="Delete these files. They're made again when needed.")
-                clear_b.clicked.connect(lambda _c=False, p=place: self.clear_place(p))
-                row.append(clear_b)
-            buttons_row(v, *row)
-            self.storage_host.addWidget(block)
+            clear_b = button("Clear", tip="Delete these files. They're made again when needed.")
+            clear_b.clicked.connect(lambda _c=False, p=place: self.clear_place(p))
+            for b, w in ((open_b, 70), (move_b, 80), (clear_b, 70)):
+                b.setFixedWidth(w)  # the same buttons line up from row to row
+            if not place.cache:
+                sp = clear_b.sizePolicy()
+                sp.setRetainSizeWhenHidden(True)
+                clear_b.setSizePolicy(sp)
+                clear_b.hide()
+            missing = place.missing()
+            size = label("Working out\u2026", "caption")
+            size.setFixedWidth(118)
+            size.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            frame, note = setting(self.storage_host, place.title, "", size, open_b, move_b, clear_b, tip=place.note,
+                                  elide=True)
+            note.setText(str(place.path()) + ("  (drive not connected)" if missing else ""))
+            note.setProperty("role", "danger" if missing else "mono")
+            repolish(note)
+            self.size_labels[place.key] = size
 
     def _refresh_sizes(self):
         for lab in self.size_labels.values():
@@ -514,7 +569,7 @@ class Swatch(QAbstractButton):
         path.addRoundedRect(r, theme.R_CONTROL, theme.R_CONTROL)
         if self.isChecked() or self.underMouse() or self.hasFocus():
             p.fillPath(path, QColor(theme.RAISED))
-        p.setPen(QPen(QColor(theme.ACCENT if self.isChecked() or self.hasFocus() else theme.LINE),
+        p.setPen(QPen(QColor(theme.OUTLINE if self.isChecked() or self.hasFocus() else theme.LINE),
                       2 if self.isChecked() or self.hasFocus() else 1))
         p.drawPath(path)
         x = (self.width() - self.size_) // 2
@@ -705,8 +760,44 @@ class LookPage(Page):
         self.buttons_style.changed.connect(lambda s: self._set("buttons", "style", s))
         self._shape_row(sh_v, "Main buttons", self.buttons_style, [])
         sh_box.finish()
+        ol_box = Box("Outline and highlight", min_h=90)
+        ol_v = ol_box.v
+        ol_v.addWidget(label("The outline marks what's selected or has the keyboard's focus. The highlight is the "
+                             "tint behind selected and ticked items.", "caption", wrap=True))
+        self.outline_colour = ColourButton("#000000", lambda c: self._set("outline", "colour", c), "Outline colour")
+        self.outline_accent = button("Use the accent", "ghost")
+        self.outline_accent.clicked.connect(lambda: self._set("outline", "colour", ""))
+        self.outline_width = Segmented([(n, f"{n}px") for n in (1, 2, 3, 4)])
+        self.outline_width.changed.connect(lambda n: self._set("outline", "width", n))
+        row = QHBoxLayout()
+        row.setSpacing(theme.GAP)
+        t1 = muted("Outline")
+        t1.setFixedWidth(theme.LABEL_W)
+        row.addWidget(t1)
+        row.addWidget(self.outline_colour)
+        row.addWidget(self.outline_accent)
+        row.addSpacing(12)
+        row.addWidget(label("Width", "caption"))
+        row.addWidget(self.outline_width)
+        row.addStretch(1)
+        ol_v.addLayout(row)
+        self.highlight_colour = ColourButton("#000000", lambda c: self._set("highlight", "colour", c),
+                                             "Highlight colour")
+        self.highlight_accent = button("Use the accent", "ghost")
+        self.highlight_accent.clicked.connect(lambda: self._set("highlight", "colour", ""))
+        row = QHBoxLayout()
+        row.setSpacing(theme.GAP)
+        t2 = muted("Highlight")
+        t2.setFixedWidth(theme.LABEL_W)
+        row.addWidget(t2)
+        row.addWidget(self.highlight_colour)
+        row.addWidget(self.highlight_accent)
+        row.addStretch(1)
+        ol_v.addLayout(row)
+        ol_box.finish()
         left = splitter("look_left", Qt.Vertical, [themes, preview_box], [380, 330], fit=True)
-        right = splitter("look_right", Qt.Vertical, [bg_box, ac_box, ft_box, sh_box], [190, 250, 110, 220],
+        right = splitter("look_right", Qt.Vertical, [bg_box, ac_box, ft_box, sh_box, ol_box],
+                         [190, 250, 110, 220, 110],
                          fit=True)
         self.body.addWidget(splitter("look_cols", Qt.Horizontal, [left, right], [280, 1000]), 1)
         self._load_fonts()
@@ -922,6 +1013,11 @@ class LookPage(Page):
         self.d_control.setValue(t["density"]["control"])
         self.d_row.setValue(t["density"]["row"])
         self.buttons_style.set_value(t["buttons"]["style"])
+        self.outline_colour.set_colour(t["outline"]["colour"] or theme.ACCENT)
+        self.outline_accent.setVisible(bool(t["outline"]["colour"]))
+        self.outline_width.set_value(t["outline"]["width"])
+        self.highlight_colour.set_colour(t["highlight"]["colour"] or theme.ACCENT)
+        self.highlight_accent.setVisible(bool(t["highlight"]["colour"]))
         self._fill_themes()
         self._showing = False
 

@@ -1,6 +1,7 @@
 """The window shell (DESIGN.md, "Layout"): a 32 px title bar with status pills, the 64 px rail, the screens,
 the 36 px status bar, the log drawer, toasts and the keyboard. On Windows the title bar is drawn by the app
 while Windows keeps resizing, snapping and the window shadow working."""
+import os
 import sys
 import time
 
@@ -601,6 +602,7 @@ class MainWindow(QMainWindow):
         self._maxed = False
         self._normal_geometry = None
         self._cursor_shape = None
+        self.native = False  # Windows keeps the frame's behaviour (snap, drag to the top, shadow); the app draws it
         self.setWindowTitle("Media Toolbox")
         self.bridge = Bridge()
         self.queue = jobs.JobQueue(self.log, self.on_main)
@@ -619,6 +621,13 @@ class MainWindow(QMainWindow):
         if self.frameless:
             self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint | Qt.WindowSystemMenuHint
                                 | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint)
+        if self.frameless and sys.platform == "win32" and os.environ.get("QT_QPA_PLATFORM") != "offscreen":
+            try:
+                _native_frame(int(self.winId()))
+                self.native = True
+            except Exception as exc:
+                logs.write(f"Couldn't hand the window frame to Windows ({exc}); resizing is done by the app.")
+        if self.frameless and not self.native:
             self._edge_timer = QTimer(self)
             self._edge_timer.setInterval(60)
             self._edge_timer.timeout.connect(self._edge_cursor)
@@ -853,7 +862,9 @@ class MainWindow(QMainWindow):
         if not avail.intersects(geo) or geo.width() > avail.width() or geo.height() > avail.height():
             w, h = min(geo.width(), avail.width()), min(geo.height(), avail.height())
             self.setGeometry(avail.x() + (avail.width() - w) // 2, avail.y() + (avail.height() - h) // 2, w, h)
-        if settings.load().get("window_maxed") and self.frameless and sys.platform == "win32":
+        if settings.load().get("window_maxed") and self.native:
+            QTimer.singleShot(0, self.showMaximized)
+        elif settings.load().get("window_maxed") and self.frameless and sys.platform == "win32":
             self._normal_geometry = self.geometry()
             self._maxed = True
             self.setGeometry(avail)
@@ -882,7 +893,8 @@ class MainWindow(QMainWindow):
         if not getattr(self, "reset_on_close", False):
             if self._maxed and self._normal_geometry is not None:
                 self.setGeometry(self._normal_geometry)  # save the normal size, and that it was maximised
-            settings.save({"window": bytes(self.saveGeometry().toBase64()).decode(), "window_maxed": self._maxed})
+            settings.save({"window": bytes(self.saveGeometry().toBase64()).decode(),
+                           "window_maxed": self._maxed or (self.native and self.isMaximized())})
         for page in self.pages.values():
             if hasattr(page, "closing"):
                 page.closing()
@@ -1001,7 +1013,7 @@ class MainWindow(QMainWindow):
     # ----- own title bar: Qt draws the whole window, Windows draws no frame at all -----
     def _edges_at(self, global_pos):
         """Which window edges the pointer is on (for resizing), or 0."""
-        if not self.frameless or self.is_maxed() or self.isFullScreen():
+        if not self.frameless or self.native or self.is_maxed() or self.isFullScreen():
             return Qt.Edges()
         p = self.mapFromGlobal(global_pos)
         x, y, w, h = p.x(), p.y(), self.width(), self.height()
@@ -1043,7 +1055,7 @@ class MainWindow(QMainWindow):
         return self._maxed or self.isMaximized()
 
     def toggle_maximized(self):
-        if not (self.frameless and sys.platform == "win32"):
+        if self.native or not (self.frameless and sys.platform == "win32"):
             self.showNormal() if self.isMaximized() else self.showMaximized()
             return
         # A frameless window maximised by Windows would cover the taskbar, so the app fills the screen's work
@@ -1058,6 +1070,10 @@ class MainWindow(QMainWindow):
         self._frame_changed()
 
     def start_move(self, global_pos):
+        if self.native:
+            if self.windowHandle():
+                self.windowHandle().startSystemMove()  # Windows snaps, maximises at the top, restores on drag
+            return
         if self._maxed:
             # dragging a maximised window: back to its normal size, under the pointer
             ratio = (global_pos.x() - self.x()) / max(1, self.width())
@@ -1068,11 +1084,121 @@ class MainWindow(QMainWindow):
 
     def _frame_changed(self):
         """The 1 px edge shows only when the window isn't filling the screen."""
-        edge = 0 if (self.is_maxed() or self.isFullScreen() or not self.frameless) else 1
+        edge = 0 if (self.is_maxed() or self.isFullScreen() or not self.frameless or self.native) else 1
         self.root.layout().setContentsMargins(edge, edge, edge, edge)
         self.root.setProperty("framed", "true" if edge else "false")
         repolish(self.root)
         self.titlebar.refresh_icons()
 
+    def nativeEvent(self, event_type, message):
+        if not self.native:
+            return False, 0
+        try:
+            return _native_event(self, message)
+        except Exception:
+            return False, 0
+
 
 EDGE = 6  # px from the window's edge that resize it
+
+
+# ----- Windows: the app draws the title bar, Windows keeps the frame's behaviour -----
+# The window keeps WS_THICKFRAME, WS_CAPTION and the maximise box, so Windows still snaps it to the screen's
+# edges and corners, maximises it when it's dragged to the top, restores it when a maximised window is
+# dragged, and gives it a shadow. WM_NCCALCSIZE makes the whole window client area (so Windows draws no
+# frame), and WM_NCHITTEST tells Windows where the edges and the draggable title strip are.
+if sys.platform == "win32":
+    import ctypes
+    from ctypes import wintypes
+
+    _user32 = ctypes.windll.user32
+    WM_NCCALCSIZE, WM_NCHITTEST = 0x0083, 0x0084
+    GWL_STYLE = -16
+    WS_CAPTION, WS_THICKFRAME, WS_MINIMIZEBOX, WS_MAXIMIZEBOX, WS_SYSMENU = (0x00C00000, 0x00040000, 0x00020000,
+                                                                           0x00010000, 0x00080000)
+    WVR_REDRAW = 0x0300
+    HTCAPTION = 2
+    HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT = (10, 11, 12, 13, 14, 15,
+                                                                                         16, 17)
+
+    class _MARGINS(ctypes.Structure):
+        _fields_ = [("left", ctypes.c_int), ("right", ctypes.c_int), ("top", ctypes.c_int), ("bottom", ctypes.c_int)]
+
+    class _NCCALCSIZE_PARAMS(ctypes.Structure):
+        _fields_ = [("rgrc", wintypes.RECT * 3), ("lppos", ctypes.c_void_p)]
+
+    class _APPBARDATA(ctypes.Structure):
+        _fields_ = [("cbSize", wintypes.DWORD), ("hWnd", wintypes.HWND), ("uCallbackMessage", wintypes.UINT),
+                    ("uEdge", wintypes.UINT), ("rc", wintypes.RECT), ("lParam", wintypes.LPARAM)]
+
+    _user32.GetWindowLongW.restype = ctypes.c_long
+    _user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+    _user32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
+    _user32.IsZoomed.argtypes = [wintypes.HWND]
+
+    def _native_frame(hwnd):
+        style = _user32.GetWindowLongW(hwnd, GWL_STYLE)
+        _user32.SetWindowLongW(hwnd, GWL_STYLE,
+                               style | WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU)
+        margins = _MARGINS(-1, -1, -1, -1)  # the window's shadow
+        ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea(wintypes.HWND(hwnd), ctypes.byref(margins))
+
+    def _metric(hwnd, index):
+        try:
+            dpi = _user32.GetDpiForWindow(wintypes.HWND(hwnd))
+            return _user32.GetSystemMetricsForDpi(index, dpi)
+        except Exception:
+            return _user32.GetSystemMetrics(index)
+
+    def _border(hwnd, horizontal):
+        """The resize border Windows adds around a maximised window (it hangs off the screen)."""
+        value = _metric(hwnd, 32 if horizontal else 33) + _metric(hwnd, 92)  # SM_CXSIZEFRAME + SM_CXPADDEDBORDER
+        return value if value > 0 else 8
+
+    def _taskbar_autohides():
+        data = _APPBARDATA()
+        data.cbSize = ctypes.sizeof(_APPBARDATA)
+        return bool(ctypes.windll.shell32.SHAppBarMessage(4, ctypes.byref(data)) & 1)  # ABM_GETSTATE, ABS_AUTOHIDE
+
+    def _native_event(window, message):
+        msg = wintypes.MSG.from_address(int(message))
+        if not msg.hWnd:
+            return False, 0
+        if msg.message == WM_NCCALCSIZE:
+            if msg.wParam:
+                rect = _NCCALCSIZE_PARAMS.from_address(msg.lParam).rgrc[0]
+            else:
+                rect = wintypes.RECT.from_address(msg.lParam)
+            if _user32.IsZoomed(msg.hWnd) and not window.isFullScreen():
+                tx, ty = _border(msg.hWnd, True), _border(msg.hWnd, False)
+                rect.left += tx
+                rect.right -= tx
+                rect.top += ty
+                rect.bottom -= ty
+                if _taskbar_autohides():
+                    rect.bottom -= 2  # leave a sliver so an auto-hiding taskbar can still pop up
+            return True, (WVR_REDRAW if msg.wParam else 0)
+        if msg.message == WM_NCHITTEST:
+            pos = QCursor.pos()
+            x, y = pos.x() - window.x(), pos.y() - window.y()
+            w, h = window.frameGeometry().width(), window.frameGeometry().height()
+            if not window.isMaximized() and not window.isFullScreen():
+                left, right, top, bottom = x < EDGE, x > w - EDGE, y < EDGE, y > h - EDGE
+                for hit, code in (((top and left), HTTOPLEFT), ((top and right), HTTOPRIGHT),
+                                  ((bottom and left), HTBOTTOMLEFT), ((bottom and right), HTBOTTOMRIGHT),
+                                  (left, HTLEFT), (right, HTRIGHT), (top, HTTOP), (bottom, HTBOTTOM)):
+                    if hit:
+                        return True, code
+            bar = window.titlebar
+            if bar.isVisible():
+                local = bar.mapFromGlobal(pos)
+                if bar.rect().contains(local) and bar.is_drag_area(local):
+                    return True, HTCAPTION  # Windows drags, snaps and double-click-maximises from here
+            return False, 0
+        return False, 0
+else:
+    def _native_frame(hwnd):
+        raise RuntimeError("only on Windows")
+
+    def _native_event(window, message):
+        return False, 0

@@ -28,6 +28,7 @@ ANGLE = 90
 ACCENT = ACC1 = ACC2 = "#2fd6b4"   # ACCENT is the last stop, for icons and outlines
 ON_ACCENT = "#0b0c0f"
 TINT_SELECT = TINT_TICK = TINT_PILL = TINT_HOVER = "#000000"
+OUTLINE, OUTLINE_W, HIGHLIGHT = "#000000", 2, "#000000"
 FAMILY, MONO = "Inter", "JetBrains Mono"
 FONT_SIZE = 13
 CONTROL_H, ROW_H = 28, 24
@@ -55,6 +56,7 @@ def use(theme):
     """Make a theme the current one (call apply(app) to restyle the window)."""
     global THEME, GROUND, RAIL, PANEL, RAISED, RAISED2, FIELD, LINE, LINE2, TEXT, SEC, FAINT, STAGE, OK, WARN, DANGER
     global STOPS, ANGLE, ACCENT, ACC1, ACC2, ON_ACCENT, TINT_SELECT, TINT_TICK, TINT_PILL, TINT_HOVER
+    global OUTLINE, OUTLINE_W, HIGHLIGHT
     global FONT_SIZE, CONTROL_H, ROW_H, R_CONTROL, R_PANEL, GLOW, LIGHT
     global MUTED, CARD_BORDER, BORDER, GREEN, ON_GREEN, SELECT, SELECT_SOFT, TRACK, RAISED_HOVER
     t = appearance.normalize(theme)
@@ -68,9 +70,12 @@ def use(theme):
     ACC1, ACC2 = STOPS[0], STOPS[-1]
     ACCENT = ACC2
     ON_ACCENT = appearance.on_accent(t)
-    TINT_SELECT = mix(FIELD, ACCENT, 0.09)
-    TINT_TICK = mix(FIELD, ACCENT, 0.13)
-    TINT_PILL = mix(PANEL, ACCENT, 0.20)
+    OUTLINE = t["outline"]["colour"] or ACCENT
+    OUTLINE_W = t["outline"]["width"]
+    HIGHLIGHT = t["highlight"]["colour"] or ACCENT
+    TINT_SELECT = mix(FIELD, HIGHLIGHT, 0.12)
+    TINT_TICK = mix(FIELD, HIGHLIGHT, 0.17)
+    TINT_PILL = mix(PANEL, HIGHLIGHT, 0.20)
     TINT_HOVER = mix(FIELD, TEXT, 0.04)
     FONT_SIZE = t["font"]["size"]
     CONTROL_H, ROW_H = t["density"]["control"], t["density"]["row"]
@@ -211,6 +216,7 @@ def _tag(name, colour, fill):
 def stylesheet():
     rh, rc, rp = ROW_H, R_CONTROL, R_PANEL
     inner = CONTROL_H - 2  # inside a one-pixel border
+    ow = OUTLINE_W  # the focus ring and selection outline
     g = grad()
     g_hover = grad([mix(s, "#ffffff", 0.12) for s in STOPS])
     fs, fc = text_px("body"), text_px("caption")
@@ -221,6 +227,9 @@ def stylesheet():
     * {{ outline: 0; }}
     QWidget {{ color: {TEXT}; font-family: "{FAMILY}"; font-size: {fs}px; }}
     QMainWindow, QWidget#root, QStackedWidget, QWidget#page, QWidget#pagehost {{ background: {GROUND}; }}
+    QFrame#setrow {{ background: {PANEL}; border: 1px solid {LINE}; border-radius: {rc + 2}px; }}
+    QFrame#keyrow {{ border-bottom: 1px solid {mix(PANEL, LINE, 0.6)}; border-radius: 0px; }}
+    QFrame#keyrow[alt="true"] {{ background: {mix(PANEL, RAISED, 0.7)}; }}
     QLabel#keycap {{ background: {RAISED}; border: 1px solid {LINE2}; border-radius: 4px; padding: 1px 6px;
         color: {TEXT}; }}
     QWidget#root[framed="true"] {{ border: 1px solid {LINE2}; }}
@@ -254,11 +263,11 @@ def stylesheet():
         font-size: 11px; font-weight: 400; padding: 5px 0px 4px 0px; min-height: 0px; max-height: 1000px; }}
     QToolButton#railbtn:hover {{ background: {RAISED}; color: {TEXT}; }}
     QToolButton#railbtn[active="true"] {{ background: {RAISED}; color: {TEXT}; }}
-    QToolButton#railbtn:focus {{ border: 2px solid {ACCENT}; padding: 3px 0px 2px 0px; }}
+    QToolButton#railbtn:focus {{ border: {ow}px solid {OUTLINE}; padding: {max(0, 5 - ow)}px 0px {max(0, 4 - ow)}px 0px; }}
 
     QFrame#toolbar, QFrame#panel, QFrame#card {{ background: {PANEL}; border: 1px solid {LINE}; border-radius: {rp}px; }}
     QFrame#tile {{ background: {RAISED}; border: 1px solid {LINE}; border-radius: {rp}px; }}
-    QFrame#tile[chosen="true"] {{ border: 1px solid {ACCENT}; }}
+    QFrame#tile[chosen="true"] {{ border: {ow}px solid {OUTLINE}; }}
     QFrame#copy {{ background: {RAISED}; border: 1px solid {LINE}; border-radius: {rp}px; }}
     QFrame#copy:hover {{ border: 1px solid {LINE2}; }}
     QFrame#copy[best="true"] {{ border: 1px solid {ACCENT}; }}
@@ -279,21 +288,21 @@ def stylesheet():
     QPushButton, QToolButton {{ background: {RAISED}; color: {TEXT}; border: 1px solid {LINE}; border-radius: {rc}px;
         padding: 0px 12px; min-height: {inner}px; max-height: {inner}px; font-weight: 600; }}
     QPushButton:hover, QToolButton:hover {{ background: {RAISED2}; }}
-    QPushButton:focus, QToolButton:focus {{ border: 2px solid {ACCENT}; padding: 0px 11px; }}
+    QPushButton:focus, QToolButton:focus {{ border: {ow}px solid {OUTLINE}; padding: 0px {13 - ow}px; }}
     QPushButton:disabled, QToolButton:disabled {{ color: {FAINT}; background: {PANEL}; }}
     QPushButton:checked {{ background: {RAISED2}; }}
     QPushButton[kind="primary"] {{ background: {g}; color: {ON_ACCENT}; border: 1px solid {ACC2}; }}
     QPushButton[kind="primary"]:hover {{ background: {g_hover}; }}
-    QPushButton[kind="primary"]:focus {{ border: 2px solid {TEXT}; }}
+    QPushButton[kind="primary"]:focus {{ border: {ow}px solid {OUTLINE if OUTLINE != ACC2 else TEXT}; }}
     QPushButton[kind="primary"]:disabled {{ background: {RAISED}; color: {FAINT}; border: 1px solid {LINE}; }}
     QPushButton[kind="ghost"] {{ background: transparent; border: 1px solid transparent; color: {SEC}; }}
     QPushButton[kind="ghost"]:hover {{ background: {RAISED}; color: {TEXT}; }}
-    QPushButton[kind="ghost"]:focus {{ border: 2px solid {ACCENT}; }}
+    QPushButton[kind="ghost"]:focus {{ border: {ow}px solid {OUTLINE}; }}
     QPushButton[kind="danger-ghost"] {{ background: transparent; color: {DANGER}; border: 1px solid {mix(PANEL, DANGER, 0.45)}; }}
     QPushButton[kind="danger-ghost"]:hover {{ background: {mix(PANEL, DANGER, 0.12)}; }}
     QPushButton[kind="danger"] {{ background: {DANGER}; color: #ffffff; border: 1px solid {DANGER}; }}
     QPushButton[kind="danger"]:hover {{ background: {mix(DANGER, '#ffffff', 0.12)}; }}
-    QPushButton[kind="danger"]:focus {{ border: 2px solid {TEXT}; }}
+    QPushButton[kind="danger"]:focus {{ border: {ow}px solid {TEXT}; }}
     QToolButton::menu-indicator {{ image: url("{_chevron(SEC)}"); subcontrol-position: right center; right: 8px;
         width: 12px; height: 12px; }}
     QToolButton[popupMode="2"] {{ padding-right: 26px; }}
@@ -303,13 +312,14 @@ def stylesheet():
         padding: 0px 10px; min-height: {inner - 4}px; max-height: {inner - 4}px; font-weight: 400; }}
     QPushButton#segbtn:hover {{ color: {TEXT}; }}
     QPushButton#segbtn:checked {{ background: {RAISED2}; color: {TEXT}; }}
-    QPushButton#segbtn:focus {{ border: 2px solid {ACCENT}; padding: 0px 8px; }}
+    QPushButton#segbtn:focus {{ border: {ow}px solid {OUTLINE}; padding: 0px {10 - ow}px; }}
 
     QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{ background: {FIELD}; color: {TEXT}; border: 1px solid {LINE2};
         border-radius: {rc}px; padding: 0px 8px; min-height: {inner}px; max-height: {inner}px;
         selection-background-color: {TINT_TICK}; selection-color: {TEXT}; }}
     QComboBox {{ background: {RAISED}; padding-right: 26px; }}
-    QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border: 2px solid {ACCENT}; padding: 0px 7px; }}
+    QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border: {ow}px solid {OUTLINE};
+        padding: 0px {max(0, 9 - ow)}px; }}
     QComboBox:focus {{ padding-right: 25px; }}
     QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled {{ color: {FAINT}; }}
     QLineEdit#mono {{ font-family: "{MONO}"; font-size: {fc}px; }}
@@ -325,7 +335,7 @@ def stylesheet():
         width: 14px; height: 14px; border-radius: 3px; border: 1px solid {LINE2}; background: {FIELD}; }}
     QCheckBox::indicator:hover {{ border: 1px solid {SEC}; }}
     QCheckBox:focus {{ color: {TEXT}; }}
-    QCheckBox::indicator:focus {{ border: 2px solid {ACCENT}; }}
+    QCheckBox::indicator:focus {{ border: {ow}px solid {OUTLINE}; }}
     QCheckBox::indicator:checked, QTreeView::indicator:checked, QListView::indicator:checked, QTableView::indicator:checked {{
         background: {g}; border: 1px solid {ACC2}; image: url("{_check(ON_ACCENT)}"); }}
     QRadioButton::indicator {{ width: 14px; height: 14px; border-radius: 7px; border: 1px solid {LINE2}; background: {FIELD}; }}
