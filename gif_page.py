@@ -18,7 +18,7 @@ import theme
 from media_utils import find_videos, open_path, probe_video, show_in_explorer
 from pages_common import ToolPage, plural
 from tool_pages import SilentPage, file_actions
-from widgets import (ElidedLabel, add_folder, button, divider, field_label, label, line_edit, muted, remember,
+from widgets import (ElidedLabel, fit, add_folder, button, divider, field_label, label, line_edit, muted, remember,
                      repolish, results_panel, tool_row, toolbar)
 
 MIN_CLIP = 0.1
@@ -152,7 +152,7 @@ class Frame(QLabel):
 
     def _refresh(self):
         if self.source is not None:
-            self.setPixmap(self.source.scaled(self.size() - QSize(4, 4), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            self.setPixmap(fit(self.source, self.size() - QSize(4, 4), self.devicePixelRatioF()))
 
 
 def _num_edit(width):

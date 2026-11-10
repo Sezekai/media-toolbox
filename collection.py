@@ -23,6 +23,7 @@ import preview
 import settings
 import theme
 import thumbs
+from widgets import fit as widgets_fit
 from widgets import ElidedLabel, EmptyState, Segmented, TintDelegate, button, label, remember, repolish
 
 ITEM = Qt.UserRole + 10
@@ -246,6 +247,7 @@ class FolderTree(QTreeWidget):
         self.setColumnWidth(1, 44)
         self.setColumnWidth(2, 26)
         self.itemClicked.connect(self._clicked)
+        self.setItemDelegate(TintDelegate(self))
         self._roots = []
 
     def fill(self, roots, items):
@@ -380,9 +382,11 @@ class GridDelegate(QStyledItemDelegate):
         p.fillPath(clip, QColor(theme.STAGE))
         image = self.coll.thumbs.get(item["path"])
         if image is not None:
-            scaled = image.scaled(thumb.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            x = thumb.x() + (thumb.width() - scaled.width()) // 2
-            y = thumb.y() + (thumb.height() - scaled.height()) // 2
+            dpr = p.device().devicePixelRatioF()
+            scaled = widgets_fit(image, thumb.size(), dpr)
+            logical = scaled.deviceIndependentSize()
+            x = thumb.x() + int((thumb.width() - logical.width()) // 2)
+            y = thumb.y() + int((thumb.height() - logical.height()) // 2)
             p.setClipPath(clip)
             p.drawImage(x, y, scaled)
             p.setClipping(False)
@@ -456,7 +460,7 @@ class Stage(QLabel):
             return
         if self.fit:
             size = self.size() - QSize(4, 4)
-            self.setPixmap(self.source.scaled(size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            self.setPixmap(widgets_fit(self.source, size, self.devicePixelRatioF()))
         else:
             self.setPixmap(self.source)  # actual size: the middle shows when it's bigger than the stage
 
@@ -478,7 +482,7 @@ class Gallery(QWidget):
         h.addWidget(self.stack, 1)
         side = QFrame()
         side.setObjectName("panel")
-        side.setFixedWidth(300)
+        side.setMinimumWidth(280)
         v = QVBoxLayout(side)
         v.setContentsMargins(theme.PAD, theme.PAD, theme.PAD, theme.PAD)
         v.setSpacing(theme.GAP)
@@ -525,7 +529,13 @@ class Gallery(QWidget):
         v.addWidget(back)
         v.addWidget(label("← → move · Space ticks · 0 fit · 1 actual size · Esc back",
                           "caption", wrap=True))
-        h.addWidget(side)
+        side_scroll = QScrollArea()  # a short window scrolls the panel instead of cutting its buttons off
+        side_scroll.setWidgetResizable(True)
+        side_scroll.setFrameShape(QFrame.NoFrame)
+        side_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        side_scroll.setFixedWidth(300)
+        side_scroll.setWidget(side)
+        h.addWidget(side_scroll)
         coll.thumbs.ready.connect(self._thumb_ready)
 
     def _fit(self, value):

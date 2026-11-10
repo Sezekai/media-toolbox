@@ -5,7 +5,7 @@ import sys
 import time
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QRect, QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPainterPath
+from PySide6.QtGui import QColor, QCursor, QGuiApplication, QPainter, QPainterPath
 from PySide6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication, QComboBox, QFrame, QHBoxLayout,
                                QLabel, QLineEdit, QMainWindow, QPlainTextEdit, QPushButton, QScrollArea,
                                QStackedWidget, QTabBar, QTextEdit, QToolButton, QVBoxLayout, QWidget)
@@ -69,11 +69,11 @@ class TitleBar(QFrame):
     def refresh_icons(self):
         for b in self.buttons:
             name = b.property("icon_name")
-            if name == "win_max" and self.window_.isMaximized():
+            if name == "win_max" and self.window_.is_maxed():
                 name = "win_restore"
             b.setIcon(icons.icon(name, theme.SEC, 16))
         self.buttons[0].setToolTip("Minimise")
-        self.buttons[1].setToolTip("Restore" if self.window_.isMaximized() else "Maximise")
+        self.buttons[1].setToolTip("Restore" if self.window_.is_maxed() else "Maximise")
         self.buttons[2].setToolTip("Close")
 
     def is_drag_area(self, pos):
@@ -86,9 +86,8 @@ class TitleBar(QFrame):
             self.window_.toggle_maximized()
 
     def mousePressEvent(self, event):
-        # Off Windows (and with the system frame) the strip still drags the window.
-        if event.button() == Qt.LeftButton and not self.window_.native_frame and self.window_.windowHandle():
-            self.window_.windowHandle().startSystemMove()
+        if event.button() == Qt.LeftButton and self.is_drag_area(event.position().toPoint()):
+            self.window_.start_move(event.globalPosition().toPoint())
 
 
 class Pill(QPushButton):
@@ -598,7 +597,10 @@ class MainWindow(QMainWindow):
         """tools: [(key, name, short label, icon, page class)]; bottom: [(key, name, icon, page class or None)]."""
         super().__init__()
         self.safe_mode = safe_mode
-        self.native_frame = sys.platform == "win32" and not safe_mode
+        self.frameless = not safe_mode  # safe mode uses the standard Windows title bar
+        self._maxed = False
+        self._normal_geometry = None
+        self._cursor_shape = None
         self.setWindowTitle("Media Toolbox")
         self.bridge = Bridge()
         self.queue = jobs.JobQueue(self.log, self.on_main)
@@ -612,24 +614,28 @@ class MainWindow(QMainWindow):
         dialogs.set_host(self.root)
         self.toasts = dialogs.Toasts(self.content_host, bottom_offset=STATUS_H + 8)
         theme.on_change(self._recolour)
-        if self.native_frame:
+        if self.frameless:
             self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint | Qt.WindowSystemMenuHint
                                 | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint)
-        elif sys.platform != "win32":
-            self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
+            self._edge_timer = QTimer(self)
+            self._edge_timer.setInterval(60)
+            self._edge_timer.timeout.connect(self._edge_cursor)
+            self._edge_timer.start()
         self.setMinimumSize(self.MIN_W, self.MIN_H)
         self._restore_geometry()
+        self._frame_changed()
         QApplication.instance().installEventFilter(self)
 
     # ----- building -----
     def _build(self, tools, bottom):
         self.root = QWidget()
         self.root.setObjectName("root")
+        self.root.setAttribute(Qt.WA_StyledBackground, True)
         v = QVBoxLayout(self.root)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
         self.titlebar = TitleBar(self)
-        self.titlebar.setVisible(sys.platform != "win32" or self.native_frame)
+        self.titlebar.setVisible(self.frameless)
         v.addWidget(self.titlebar)
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
@@ -803,21 +809,21 @@ class MainWindow(QMainWindow):
         self.update()
 
     # ----- window -----
-    def toggle_maximized(self):
-        self.showNormal() if self.isMaximized() else self.showMaximized()
-
     def changeEvent(self, event):
         if event.type() == QEvent.WindowStateChange:
-            self.titlebar.refresh_icons()
+            self._frame_changed()
         super().changeEvent(event)
 
     def toggle_fullscreen(self):
         if self.isFullScreen():
             self.showNormal()
-            self.titlebar.setVisible(True)
+            if self._maxed:
+                self.setGeometry(self.screen().availableGeometry())
+            self.titlebar.setVisible(self.frameless)
         else:
             self.titlebar.setVisible(False)  # full screen hides the strip
             self.showFullScreen()
+        self._frame_changed()
 
     def toggle_panels(self):
         self.panels_hidden = not self.panels_hidden
@@ -837,11 +843,27 @@ class MainWindow(QMainWindow):
             self.restoreGeometry(QByteArray.fromBase64(saved.encode()))
         else:
             self.resize(1440, 900)
+        # never open off screen or bigger than the screen (a monitor may have been unplugged)
+        avail = (self.screen() or QGuiApplication.primaryScreen()).availableGeometry()
+        geo = self.geometry()
+        if not avail.intersects(geo) or geo.width() > avail.width() or geo.height() > avail.height():
+            w, h = min(geo.width(), avail.width()), min(geo.height(), avail.height())
+            self.setGeometry(avail.x() + (avail.width() - w) // 2, avail.y() + (avail.height() - h) // 2, w, h)
+        if settings.load().get("window_maxed") and self.frameless and sys.platform == "win32":
+            self._normal_geometry = self.geometry()
+            self._maxed = True
+            self.setGeometry(avail)
         self.rail.setVisible(not settings.load().get("rail_hidden", False))
 
     def eventFilter(self, obj, event):
         if obj is self.content_host and event.type() == QEvent.Resize and self.drawer.isVisible():
             self._place_drawer()
+        if (event.type() == QEvent.MouseButtonPress and self.frameless and event.button() == Qt.LeftButton
+                and isinstance(obj, QWidget) and obj.window() is self):
+            edges = self._edges_at(event.globalPosition().toPoint())
+            if edges and self.windowHandle():
+                self.windowHandle().startSystemResize(edges)
+                return True
         if event.type() == QEvent.KeyPress and self.isActiveWindow():
             return self._key(event)
         return False
@@ -854,7 +876,9 @@ class MainWindow(QMainWindow):
                 return
             self.queue.stop()
         if not getattr(self, "reset_on_close", False):
-            settings.save({"window": bytes(self.saveGeometry().toBase64()).decode()})
+            if self._maxed and self._normal_geometry is not None:
+                self.setGeometry(self._normal_geometry)  # save the normal size, and that it was maximised
+            settings.save({"window": bytes(self.saveGeometry().toBase64()).decode(), "window_maxed": self._maxed})
         for page in self.pages.values():
             if hasattr(page, "closing"):
                 page.closing()
@@ -966,108 +990,81 @@ class MainWindow(QMainWindow):
         QGuiApplication.clipboard().setText("\n".join(lines))
         self.toast("Copied a debug report for bug reports.", "ok")
 
-    # ----- Windows: own title bar, keeping resize, snap and shadow -----
-    def showEvent(self, event):
-        super().showEvent(event)
-        if self.native_frame and not getattr(self, "_frame_ready", False):
-            self._frame_ready = True
-            try:
-                _setup_native_frame(int(self.winId()))
-            except Exception as exc:
-                self.log(f"Couldn't set up the custom title bar ({exc}); using the standard one.")
+    # ----- own title bar: Qt draws the whole window, Windows draws no frame at all -----
+    def _edges_at(self, global_pos):
+        """Which window edges the pointer is on (for resizing), or 0."""
+        if not self.frameless or self.is_maxed() or self.isFullScreen():
+            return Qt.Edges()
+        p = self.mapFromGlobal(global_pos)
+        x, y, w, h = p.x(), p.y(), self.width(), self.height()
+        if not (-2 <= x <= w + 2 and -2 <= y <= h + 2):
+            return Qt.Edges()
+        e = Qt.Edges()
+        if x < EDGE:
+            e |= Qt.LeftEdge
+        elif x >= w - EDGE:
+            e |= Qt.RightEdge
+        if y < EDGE:
+            e |= Qt.TopEdge
+        elif y >= h - EDGE:
+            e |= Qt.BottomEdge
+        return e
 
-    def nativeEvent(self, event_type, message):
-        if not self.native_frame:
-            return False, 0
-        try:
-            return _native_event(self, message)
-        except Exception:
-            return False, 0
+    def _edge_cursor(self):
+        """Show a resize pointer near the edges (checked on a timer, so no widget needs mouse tracking)."""
+        if not self.isActiveWindow() or QApplication.mouseButtons() != Qt.NoButton:
+            return
+        e = self._edges_at(QCursor.pos())
+        shape = None
+        if e in (Qt.LeftEdge | Qt.TopEdge, Qt.RightEdge | Qt.BottomEdge):
+            shape = Qt.SizeFDiagCursor
+        elif e in (Qt.RightEdge | Qt.TopEdge, Qt.LeftEdge | Qt.BottomEdge):
+            shape = Qt.SizeBDiagCursor
+        elif e in (Qt.LeftEdge, Qt.RightEdge):
+            shape = Qt.SizeHorCursor
+        elif e in (Qt.TopEdge, Qt.BottomEdge):
+            shape = Qt.SizeVerCursor
+        if shape != self._cursor_shape:
+            if self._cursor_shape is not None:
+                QApplication.restoreOverrideCursor()
+            if shape is not None:
+                QApplication.setOverrideCursor(shape)
+            self._cursor_shape = shape
+
+    def is_maxed(self):
+        return self._maxed or self.isMaximized()
+
+    def toggle_maximized(self):
+        if not (self.frameless and sys.platform == "win32"):
+            self.showNormal() if self.isMaximized() else self.showMaximized()
+            return
+        # A frameless window maximised by Windows would cover the taskbar, so the app fills the screen's work
+        # area itself and remembers the size to go back to.
+        if self._maxed:
+            self._maxed = False
+            self.setGeometry(self._normal_geometry)
+        else:
+            self._normal_geometry = self.geometry()
+            self._maxed = True
+            self.setGeometry(self.screen().availableGeometry())
+        self._frame_changed()
+
+    def start_move(self, global_pos):
+        if self._maxed:
+            # dragging a maximised window: back to its normal size, under the pointer
+            ratio = (global_pos.x() - self.x()) / max(1, self.width())
+            self.toggle_maximized()
+            self.move(int(global_pos.x() - self.width() * ratio), global_pos.y() - TITLE_H // 2)
+        if self.windowHandle():
+            self.windowHandle().startSystemMove()
+
+    def _frame_changed(self):
+        """The 1 px edge shows only when the window isn't filling the screen."""
+        edge = 0 if (self.is_maxed() or self.isFullScreen() or not self.frameless) else 1
+        self.root.layout().setContentsMargins(edge, edge, edge, edge)
+        self.root.setProperty("framed", "true" if edge else "false")
+        repolish(self.root)
+        self.titlebar.refresh_icons()
 
 
-# ----- Win32 helpers -----
-if sys.platform == "win32":
-    import ctypes
-    from ctypes import wintypes
-
-    WM_NCCALCSIZE = 0x0083
-    WM_NCHITTEST = 0x0084
-    GWL_STYLE = -16
-    WS_CAPTION, WS_THICKFRAME, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_SYSMENU = (0x00C00000, 0x00040000, 0x00010000,
-                                                                           0x00020000, 0x00080000)
-    HTCLIENT, HTCAPTION = 1, 2
-    HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT = 10, 11, 12, 13, 14, 15, 16, 17
-
-    class MARGINS(ctypes.Structure):
-        _fields_ = [("left", ctypes.c_int), ("right", ctypes.c_int), ("top", ctypes.c_int), ("bottom", ctypes.c_int)]
-
-    class NCCALCSIZE_PARAMS(ctypes.Structure):
-        _fields_ = [("rgrc", wintypes.RECT * 3), ("lppos", ctypes.c_void_p)]
-
-    def _setup_native_frame(hwnd):
-        user32 = ctypes.windll.user32
-        user32.GetWindowLongW.restype = ctypes.c_long
-        style = user32.GetWindowLongW(wintypes.HWND(hwnd), GWL_STYLE)
-        user32.SetWindowLongW(wintypes.HWND(hwnd), GWL_STYLE,
-                              style | WS_CAPTION | WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX | WS_SYSMENU)
-        try:
-            ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea(wintypes.HWND(hwnd), ctypes.byref(MARGINS(0, 0, 1, 0)))
-        except Exception:
-            pass
-        # Ask Windows to recalculate the frame now (SWP_FRAMECHANGED | NOMOVE | NOSIZE | NOZORDER | NOACTIVATE)
-        user32.SetWindowPos(wintypes.HWND(hwnd), None, 0, 0, 0, 0, 0x0020 | 0x0002 | 0x0001 | 0x0004 | 0x0010)
-
-    def _frame_thickness(window):
-        user32 = ctypes.windll.user32
-        dpi = window.devicePixelRatioF()
-        return int(user32.GetSystemMetrics(32) + user32.GetSystemMetrics(92)), dpi  # SM_CXSIZEFRAME + PADDEDBORDER
-
-    def _native_event(window, message):
-        msg = wintypes.MSG.from_address(int(message))
-        if msg.message == WM_NCCALCSIZE and msg.wParam:
-            if window.isMaximized():
-                # A maximised window hangs over the screen edge by its frame; keep the content on screen.
-                params = NCCALCSIZE_PARAMS.from_address(msg.lParam)
-                border, _dpi = _frame_thickness(window)
-                r = params.rgrc[0]
-                r.left += border
-                r.top += border
-                r.right -= border
-                r.bottom -= border
-            return True, 0  # the whole window is client area: no system title bar
-        if msg.message == WM_NCHITTEST:
-            from PySide6.QtGui import QCursor
-            pos = window.mapFromGlobal(QCursor.pos())
-            x, y, w, h = pos.x(), pos.y(), window.width(), window.height()
-            edge = 6
-            if not window.isMaximized() and not window.isFullScreen():
-                left, right, top, bottom = x < edge, x >= w - edge, y < edge, y >= h - edge
-                if top and left:
-                    return True, HTTOPLEFT
-                if top and right:
-                    return True, HTTOPRIGHT
-                if bottom and left:
-                    return True, HTBOTTOMLEFT
-                if bottom and right:
-                    return True, HTBOTTOMRIGHT
-                if left:
-                    return True, HTLEFT
-                if right:
-                    return True, HTRIGHT
-                if top:
-                    return True, HTTOP
-                if bottom:
-                    return True, HTBOTTOM
-            bar = window.titlebar
-            if bar.isVisible() and y < TITLE_H:
-                local = bar.mapFrom(window, pos)
-                if bar.is_drag_area(local):
-                    return True, HTCAPTION
-            return True, HTCLIENT
-        return False, 0
-else:
-    def _setup_native_frame(hwnd):
-        pass
-
-    def _native_event(window, message):
-        return False, 0
+EDGE = 6  # px from the window's edge that resize it

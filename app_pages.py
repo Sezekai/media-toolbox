@@ -30,49 +30,104 @@ from media_utils import open_path
 from widgets import (ElidedLabel, FlowLayout, Page, Segmented, button, divider, label, line_edit, muted, repolish)
 
 
-def scroll_page(page):
-    """A vertical-only scroll area holding the page's sections."""
-    area = QScrollArea()
-    area.setWidgetResizable(True)
-    area.setFrameShape(QFrame.NoFrame)
-    area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-    host = QWidget()
-    v = QVBoxLayout(host)
-    v.setContentsMargins(0, 0, 10, 0)
-    v.setSpacing(theme.GAP)
-    area.setWidget(host)
-    page.body.addWidget(area, 1)
-    return v
+class Box(QFrame):
+    """A titled panel whose contents scroll up and down when it's made smaller than they are. Boxes sit in
+    splitters, so each one can be made taller, shorter, wider or narrower, and the sizes are remembered."""
+
+    def __init__(self, title, note="", min_w=240, min_h=90):
+        super().__init__()
+        self.setObjectName("panel")
+        self.setMinimumSize(min_w, min_h)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(theme.PAD + 2, theme.PAD, 4, theme.PAD - 2)
+        outer.setSpacing(6)
+        head = QHBoxLayout()
+        head.setContentsMargins(0, 0, theme.PAD - 2, 0)
+        head.addWidget(label(title, "heading"))
+        if note:
+            head.addWidget(ElidedLabel(note, "caption"), 1)
+        else:
+            head.addStretch(1)
+        self.head = head
+        outer.addLayout(head)
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        host = QWidget()
+        self.v = QVBoxLayout(host)
+        self.v.setContentsMargins(0, 2, theme.PAD - 2, 2)  # room for the scroll bar on the right
+        self.v.setSpacing(theme.GAP)
+        area.setWidget(host)
+        outer.addWidget(area, 1)
+        self.area = area
+
+    def finish(self):
+        self.v.addStretch(1)
+
+    def wanted_height(self):
+        """How tall the box must be to show everything without scrolling, at its current width."""
+        host = self.area.widget()
+        width = max(100, self.area.viewport().width())
+        inner = host.heightForWidth(width) if host.hasHeightForWidth() else -1
+        if inner < 0:
+            inner = host.sizeHint().height()
+        m = self.layout().contentsMargins()
+        return inner + m.top() + m.bottom() + self.layout().spacing() + theme.text_px("title") + 12
 
 
-def section(parent_layout, title, note=""):
-    frame = QFrame()
-    frame.setObjectName("panel")
-    v = QVBoxLayout(frame)
-    v.setContentsMargins(theme.PAD + 4, theme.PAD, theme.PAD + 4, theme.PAD + 2)
-    v.setSpacing(theme.GAP)
-    head = QHBoxLayout()
-    head.addWidget(label(title, "heading"))
+def splitter(key, orientation, widgets_, sizes, fit=False):
+    """Boxes side by side (or stacked) with handles between them; their sizes are remembered. With fit, a
+    first-time stack gives each box the height its contents need, and any room left to the last one."""
+    from PySide6.QtWidgets import QSplitter
+    sp = QSplitter(orientation)
+    sp.setChildrenCollapsible(False)
+    sp.setHandleWidth(theme.GAP)
+    for w in widgets_:
+        sp.addWidget(w)
+    for n in range(len(widgets_)):
+        sp.setStretchFactor(n, 1)
+    sp.setSizes(sizes)
+    if fit and not widgets.remembered(key):
+        def share():
+            want = [w.wanted_height() if isinstance(w, Box) else w.sizeHint().height() for w in widgets_]
+            room = sp.height() - sp.handleWidth() * (len(widgets_) - 1)
+            if room <= 0:
+                return
+            if sum(want) < room:
+                want[-1] += room - sum(want)
+            sp.setSizes(want)
+        QTimer.singleShot(0, share)
+        QTimer.singleShot(150, share)  # again once the window has its real size
+    widgets.remember(key, sp)
+    return sp
+
+
+def option(layout, title, note, *controls):
+    """A setting: its name, what it does, and its control right underneath, so they read as one."""
+    block = QVBoxLayout()
+    block.setSpacing(3)
+    block.addWidget(label(title, "value"))
     if note:
-        head.addWidget(ElidedLabel(note, "caption"), 1)
-    else:
-        head.addStretch(1)
-    v.addLayout(head)
-    parent_layout.addWidget(frame)
-    return v, head
-
-
-def option_row(layout, title, note, control):
+        block.addWidget(label(note, "caption", wrap=True))
     row = QHBoxLayout()
-    row.setSpacing(12)
-    text = QVBoxLayout()
-    text.setSpacing(1)
-    text.addWidget(label(title, "value"))
-    if note:
-        text.addWidget(label(note, "caption", wrap=True))
-    row.addLayout(text, 1)
-    row.addWidget(control, 0, Qt.AlignVCenter)
-    layout.addLayout(row)
+    row.setSpacing(theme.GAP)
+    row.setContentsMargins(0, 3, 0, 0)
+    for c in controls:
+        row.addWidget(c)
+    row.addStretch(1)
+    block.addLayout(row)
+    layout.addLayout(block)
+    layout.addSpacing(6)
+
+
+def buttons_row(layout, *buttons_):
+    host, flow = widgets.wrap_row()
+    flow._center = False
+    for b in buttons_:
+        flow.addWidget(b)
+    layout.addWidget(host)
+    return host
 
 
 # ===================================================================== Settings
@@ -82,94 +137,105 @@ class SettingsPage(Page):
     icon = "settings"
 
     def build(self):
-        v = scroll_page(self)
         saved = settings.load()
 
         # ----- the app -----
-        app_v, _ = section(v, "The app")
+        app_box = Box("The app")
+        app_v = app_box.v
         self.click = Segmented([("select", "Selects it"), ("tick", "Ticks it")],
                                "tick" if saved.get("click_ticks") else "select")
         self.click.changed.connect(lambda val: settings.save({"click_ticks": val == "tick"}))
-        option_row(app_v, "When you click an item", "Ctrl+click and the tick box always tick. Actions use the "
-                   "ticked items, or the selected one when nothing is ticked.", self.click)
-        self.hover = QCheckBox("On")
+        option(app_v, "When you click an item", "Ctrl+click and the tick box always tick. Actions use the ticked "
+               "items, or the selected one when nothing is ticked.", self.click)
+        self.hover = QCheckBox("Play silent previews")
         self.hover.setChecked(saved.get("hover_previews", True))
         self.hover.toggled.connect(lambda on: settings.save({"hover_previews": on}))
-        option_row(app_v, "Play a silent preview when the pointer rests on a duplicate", "One at a time. Off in "
-                   "safe mode." + ("" if preview.AVAILABLE else " Video playback isn't available on this PC."),
-                   self.hover)
+        option(app_v, "Duplicate cards", "A silent preview plays while the pointer rests on a copy. One at a time; off "
+               "in safe mode." + ("" if preview.AVAILABLE else " Video playback isn't available on this PC."),
+               self.hover)
         self.use = Segmented([("auto", "Auto"), ("gpu", "GPU"), ("cpu", "CPU")], saved.get("gpu_use", "auto"))
         self.use.changed.connect(self._gpu_changed)
-        self.gpu_note = "Auto uses an NVIDIA GPU when there is one. If GPU decoding fails, the scan runs on the CPU."
-        option_row(app_v, "Decode videos for duplicate scans on", self.gpu_note, self.use)
-        self.gpu_found = label("Looking for a GPU\u2026", "caption")
+        option(app_v, "Decode videos for duplicate scans on", "Auto uses an NVIDIA GPU when there is one. If GPU "
+               "decoding fails, the scan runs on the CPU instead.", self.use)
+        self.gpu_found = label("Looking for a GPU\u2026", "caption", wrap=True)
         app_v.addWidget(self.gpu_found)
+        app_box.finish()
 
         # ----- the engine -----
-        eng_v, _ = section(v, "Duplicate engine", "vdf-cli by 0x90d (AGPL). Downloaded when you ask, never bundled.")
+        eng_box = Box("Duplicate engine")
+        eng_v = eng_box.v
+        eng_v.addWidget(label("vdf-cli by 0x90d (AGPL). Downloaded when you ask, never bundled.", "caption",
+                              wrap=True))
         self.engine_status = label("", "value", wrap=True)
         self.ffmpeg_status = label("", "caption", wrap=True)
         eng_v.addWidget(self.engine_status)
         eng_v.addWidget(self.ffmpeg_status)
-        row = QHBoxLayout()
-        row.setSpacing(theme.GAP)
         self.install_btn = button("Install engine\u2026")
         self.install_btn.clicked.connect(lambda: engine_ui.install(self.app))
         self.update_btn = button("Check for an update")
         self.update_btn.clicked.connect(lambda: engine_ui.install(self.app, update=True))
         self.ffmpeg_btn = button("Get FFmpeg\u2026")
         self.ffmpeg_btn.clicked.connect(lambda: engine_ui.install_ffmpeg(self.app))
-        for b in (self.install_btn, self.update_btn, self.ffmpeg_btn):
-            row.addWidget(b)
-        row.addWidget(divider())
-        diag = button("Diagnose", icon=icons.icon("wrench", theme.TEXT, 16), tip="Check everything the app needs")
+        buttons_row(eng_v, self.install_btn, self.update_btn, self.ffmpeg_btn)
+        eng_v.addWidget(widgets.hline())
+        eng_v.addWidget(label("Checks", "value"))
+        eng_v.addWidget(label("Diagnose checks everything the app needs. Repair fixes what's safe to fix: temporary "
+                              "files, missing folders, the FFmpeg copy. Copy report is for bug reports.", "caption",
+                              wrap=True))
+        diag = button("Diagnose", icon=icons.icon("wrench", theme.TEXT, 16))
         diag.clicked.connect(self.diagnose)
-        rep = button("Repair", tip="Fix what can be fixed safely: temporary files, missing folders, the FFmpeg copy")
+        rep = button("Repair")
         rep.clicked.connect(self.repair)
         copy = button("Copy report", "ghost", icon=icons.icon("copy", theme.SEC, 16),
-                      tip="Copy the findings for a bug report (also saved in the logs folder)")
+                      tip="Also saved in the logs folder")
         copy.clicked.connect(self.copy_report)
-        for b in (diag, rep, copy):
-            row.addWidget(b)
-        row.addStretch(1)
-        eng_v.addLayout(row)
+        buttons_row(eng_v, diag, rep, copy)
         self.findings_host = QVBoxLayout()
         self.findings_host.setSpacing(4)
         eng_v.addLayout(self.findings_host)
         self.findings = []
         engine_ui.on_change(self.refresh_engine)
+        eng_box.finish()
+
+        # ----- about -----
+        ab_box = Box("About")
+        ab_box.v.addWidget(label(f"Media Toolbox {version.__version__} \u00b7 one portable program. FFmpeg is "
+                                 "bundled (builds from gyan.dev).", "muted", wrap=True))
+        logs_btn = button("Open the logs folder", "ghost", icon=icons.icon("folder", theme.SEC, 16))
+        logs_btn.clicked.connect(lambda: open_path(paths.logs_dir()))
+        buttons_row(ab_box.v, logs_btn)
+        ab_box.finish()
 
         # ----- storage -----
-        st_v, st_head = section(v, "Storage", "Where the app keeps things. Move any of them to another drive.")
-        self.storage_grid = QGridLayout()
-        self.storage_grid.setHorizontalSpacing(10)
-        self.storage_grid.setVerticalSpacing(8)
-        self.storage_grid.setColumnStretch(1, 1)
-        st_v.addLayout(self.storage_grid)
+        st_box = Box("Storage")
+        st_box.v.addWidget(label("Where the app keeps things. Move any of them to another drive; the old copy goes "
+                                 "to the Recycle Bin once the new one is checked.", "caption", wrap=True))
+        self.storage_host = QVBoxLayout()
+        self.storage_host.setSpacing(theme.GAP)
+        st_box.v.addLayout(self.storage_host)
         self.size_labels = {}
         self._fill_storage()
+        st_box.finish()
 
         # ----- reset -----
-        rs_v, _ = section(v, "Reset", "Each part asks first. Nothing here touches your videos or pictures.")
+        rs_box = Box("Reset")
+        rs_box.v.addWidget(label("Each part asks first. Nothing here touches your videos or pictures.", "caption",
+                                 wrap=True))
         for title, note, fn in (
-                ("Settings and sizes", "Choices, folder lists, column widths and window size go back to how they "
-                 "started. The look and storage places stay.", self.reset_settings),
+                ("Settings and sizes", "Choices, folder lists, box and column sizes and the window size go back to "
+                 "how they started. The look and storage places stay.", self.reset_settings),
                 ("Checked videos and ignored groups", "Videos already checked against the library, groups you "
                  "ignored, and saved duplicate results are forgotten, so they can come back.", self.reset_dups),
                 ("Move log", "Clears the list of moves. Moves already made can't be undone afterwards.",
                  self.reset_moves)):
             b = button("Reset\u2026", "danger-ghost")
             b.clicked.connect(fn)
-            option_row(rs_v, title, note, b)
+            option(rs_box.v, title, note, b)
+        rs_box.finish()
 
-        # ----- about -----
-        ab_v, _ = section(v, "About")
-        ab_v.addWidget(label(f"Media Toolbox {version.__version__} \u00b7 one portable program. FFmpeg is bundled "
-                             "(LGPL/GPL builds from gyan.dev).", "muted", wrap=True))
-        logs_btn = button("Open the logs folder", "ghost", icon=icons.icon("folder", theme.SEC, 16))
-        logs_btn.clicked.connect(lambda: open_path(paths.logs_dir()))
-        ab_v.addWidget(logs_btn, 0, Qt.AlignLeft)
-        v.addStretch(1)
+        left = splitter("settings_left", Qt.Vertical, [app_box, eng_box, ab_box], [300, 360, 110], fit=True)
+        right = splitter("settings_right", Qt.Vertical, [st_box, rs_box], [520, 260], fit=True)
+        self.body.addWidget(splitter("settings_cols", Qt.Horizontal, [left, right], [600, 600]), 1)
         self.refresh_engine()
 
     def shown(self):
@@ -243,43 +309,42 @@ class SettingsPage(Page):
 
     # ----- storage -----
     def _fill_storage(self):
-        g = self.storage_grid
-        while g.count():
-            w = g.takeAt(0).widget()
+        while self.storage_host.count():
+            w = self.storage_host.takeAt(0).widget()
             if w:
+                w.hide()
                 w.deleteLater()
         self.size_labels = {}
-        for r, place in enumerate(paths.PLACES):
-            text = QVBoxLayout()
-            title = label(place.title, "value")
-            note = label(place.note, "caption", wrap=True)
-            box = QWidget()
-            box.setLayout(text)
-            text.setContentsMargins(0, 0, 0, 0)
-            text.setSpacing(1)
-            text.addWidget(title)
-            text.addWidget(note)
-            box.setFixedWidth(250)
-            g.addWidget(box, r, 0, Qt.AlignTop)
-            missing = place.missing()
-            path = ElidedLabel(str(place.path()) + ("  (drive not connected)" if missing else ""),
-                               "danger" if missing else "mono", Qt.ElideMiddle)
-            g.addWidget(path, r, 1, Qt.AlignVCenter)
+        for n, place in enumerate(paths.PLACES):
+            block = QWidget()
+            v = QVBoxLayout(block)
+            v.setContentsMargins(0, 0, 0, 0)
+            v.setSpacing(2)
+            if n:
+                v.addWidget(widgets.hline())
+                v.addSpacing(4)
+            top = QHBoxLayout()
+            top.addWidget(label(place.title, "value"))
+            top.addStretch(1)
             size = label("Working out\u2026", "caption")
-            size.setFixedWidth(120)
-            size.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            g.addWidget(size, r, 2)
+            top.addWidget(size)
             self.size_labels[place.key] = size
+            v.addLayout(top)
+            v.addWidget(label(place.note, "caption", wrap=True))
+            missing = place.missing()
+            v.addWidget(ElidedLabel(str(place.path()) + ("  (drive not connected)" if missing else ""),
+                                    "danger" if missing else "mono", Qt.ElideMiddle))
             open_b = button("Open folder", "ghost")
             open_b.clicked.connect(lambda _c=False, p=place: open_path(paths.place(p.key)))
-            g.addWidget(open_b, r, 3)
             move_b = button("Move\u2026", "ghost")
             move_b.clicked.connect(lambda _c=False, p=place: self.move_place(p))
-            g.addWidget(move_b, r, 4)
+            row = [open_b, move_b]
             if place.cache:
                 clear_b = button("Clear", "ghost", tip="Delete these files. They're made again when needed.")
                 clear_b.clicked.connect(lambda _c=False, p=place: self.clear_place(p))
-                g.addWidget(clear_b, r, 5)
+                row.append(clear_b)
+            buttons_row(v, *row)
+            self.storage_host.addWidget(block)
 
     def _refresh_sizes(self):
         for lab in self.size_labels.values():
@@ -453,7 +518,7 @@ class Swatch(QAbstractButton):
                       2 if self.isChecked() or self.hasFocus() else 1))
         p.drawPath(path)
         x = (self.width() - self.size_) // 2
-        p.drawPixmap(x, 4, icons.swatch(self.colours, self.size_, self.round_).pixmap(self.size_, self.size_))
+        p.drawPixmap(x, 4, icons.swatch_pixmap(self.colours, self.size_, self.round_))
         p.setPen(QColor(theme.TEXT if self.isChecked() else theme.SEC))
         p.setFont(theme.font("caption"))
         p.drawText(self.rect().adjusted(2, self.size_ + 6, -2, -2), Qt.AlignHCenter | Qt.AlignTop,
@@ -492,58 +557,35 @@ class LookPage(Page):
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(150)
         self._save_timer.timeout.connect(self._apply_now)
-        row = QHBoxLayout()
-        row.setSpacing(theme.GAP)
-        self.body.addLayout(row, 1)
-
         # ----- themes -----
-        themes = QFrame()
-        themes.setObjectName("panel")
-        themes.setFixedWidth(260)
-        tv = QVBoxLayout(themes)
-        tv.setContentsMargins(theme.PAD, theme.PAD, theme.PAD, theme.PAD)
-        tv.setSpacing(theme.GAP)
-        tv.addWidget(label("Themes", "heading"))
+        themes = Box("Themes", min_w=220, min_h=160)
+        tv = themes.v
         self.theme_list = QListWidget()
+        self.theme_list.setItemDelegate(widgets.TintDelegate(self.theme_list))
         self.theme_list.itemClicked.connect(self._pick_theme)
+        self.theme_list.setMinimumHeight(60)
         tv.addWidget(self.theme_list, 1)
         self.active_note = label("", "caption", wrap=True)
         tv.addWidget(self.active_note)
-        grid = QGridLayout()
-        grid.setSpacing(6)
         acts = [("Save as theme\u2026", self.save_as), ("Update", self.update_theme), ("Rename\u2026", self.rename),
                 ("Duplicate", self.duplicate), ("Export\u2026", self.export), ("Import\u2026", self.import_),
-                ("Delete\u2026", self.delete)]
+                ("Delete\u2026", self.delete), ("Reset to default", self.reset_default)]
         self.theme_buttons = {}
+        made = []
         for n, (text, fn) in enumerate(acts):
-            b = button(text, "primary" if n == 0 else ("danger-ghost" if text.startswith("Delete") else "secondary"))
+            kind = "primary" if n == 0 else "danger-ghost" if text.startswith("Delete") else (
+                "ghost" if text.startswith("Reset") else "secondary")
+            b = button(text, kind)
             b.clicked.connect(fn)
-            grid.addWidget(b, n // 2, n % 2)
             self.theme_buttons[text] = b
-        tv.addLayout(grid)
-        reset = button("Reset to default", "ghost")
-        reset.clicked.connect(self.reset_default)
-        tv.addWidget(reset)
-        left = QVBoxLayout()
-        left.setSpacing(theme.GAP)
-        left.addWidget(themes, 1)
-        self.preview_panel = self._preview()
-        left.addWidget(self.preview_panel)
-        row.addLayout(left)
+            made.append(b)
+        buttons_row(tv, *made)
+        preview_box = Box("Preview", min_w=220, min_h=120)
+        self._preview(preview_box.v)
+        preview_box.finish()
 
-        # ----- the controls -----
-        area = QScrollArea()
-        area.setWidgetResizable(True)
-        area.setFrameShape(QFrame.NoFrame)
-        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        host = QWidget()
-        v = QVBoxLayout(host)
-        v.setContentsMargins(0, 0, 10, 0)
-        v.setSpacing(theme.GAP)
-        area.setWidget(host)
-        row.addWidget(area, 1)
-
-        bg_v, _ = section(v, "Background")
+        bg_box = Box("Background", min_h=110)
+        bg_v = bg_box.v
         self.bg_tiles = {}
         bg_host = QWidget()
         bg_flow = FlowLayout(bg_host, spacing=6, vspacing=6)
@@ -577,7 +619,9 @@ class LookPage(Page):
         self.edit_colours.toggled.connect(self.colour_grid_host.setVisible)
         bg_v.addWidget(self.colour_grid_host)
 
-        ac_v, _ = section(v, "Accent")
+        bg_box.finish()
+        ac_box = Box("Accent", min_h=110)
+        ac_v = ac_box.v
         self.acc_tiles = {}
         acc_host = QWidget()
         acc_flow = FlowLayout(acc_host, spacing=6, vspacing=6)
@@ -623,7 +667,9 @@ class LookPage(Page):
         on_row.addStretch(1)
         ac_v.addLayout(on_row)
 
-        ft_v, _ = section(v, "Font")
+        ac_box.finish()
+        ft_box = Box("Font", min_h=90)
+        ft_v = ft_box.v
         font_row = QHBoxLayout()
         font_row.setSpacing(theme.GAP)
         self.font_box = QComboBox()
@@ -642,7 +688,9 @@ class LookPage(Page):
         font_row.addStretch(1)
         ft_v.addLayout(font_row)
 
-        sh_v, _ = section(v, "Shape and spacing")
+        ft_box.finish()
+        sh_box = Box("Shape and spacing", min_h=110)
+        sh_v = sh_box.v
         self.corners = Segmented([(k, c["name"]) for k, c in appearance.CORNERS.items()])
         self.corners.changed.connect(lambda k: self._set_pair("corners", appearance.CORNERS[k]))
         self.c_control = self._slider(0, 16, lambda val: self._set("corners", "control", val))
@@ -656,7 +704,11 @@ class LookPage(Page):
         self.buttons_style = Segmented([("flat", "Flat"), ("glow", "Glow")])
         self.buttons_style.changed.connect(lambda s: self._set("buttons", "style", s))
         self._shape_row(sh_v, "Main buttons", self.buttons_style, [])
-        v.addStretch(1)
+        sh_box.finish()
+        left = splitter("look_left", Qt.Vertical, [themes, preview_box], [380, 330], fit=True)
+        right = splitter("look_right", Qt.Vertical, [bg_box, ac_box, ft_box, sh_box], [190, 250, 110, 220],
+                         fit=True)
+        self.body.addWidget(splitter("look_cols", Qt.Horizontal, [left, right], [280, 1000]), 1)
         self._load_fonts()
         self._show()
 
@@ -695,20 +747,15 @@ class LookPage(Page):
         fine.addStretch(1)
         layout.addLayout(fine)
 
-    def _preview(self):
-        frame = QFrame()
-        frame.setObjectName("panel")
-        frame.setFixedWidth(260)
-        v = QVBoxLayout(frame)
-        v.setContentsMargins(theme.PAD, theme.PAD, theme.PAD, theme.PAD)
-        v.setSpacing(theme.GAP)
-        v.addWidget(label("Preview", "heading"))
+    def _preview(self, v):
         b = QHBoxLayout()
         b.addWidget(button("Convert", "primary"))
         b.addWidget(button("Browse"))
+        b.addStretch(1)
         v.addLayout(b)
         v.addWidget(line_edit("D:\\Videos\\Clips"))
         lst = QListWidget()
+        lst.setItemDelegate(widgets.TintDelegate(lst))
         for n, t in enumerate(("holiday.mp4", "concert.mkv", "interview.mov")):
             it = QListWidgetItem(t)
             it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
@@ -716,6 +763,7 @@ class LookPage(Page):
             lst.addItem(it)
         lst.setCurrentRow(0)
         lst.setFixedHeight(3 * theme.ROW_H + 8)
+        self.preview_list = lst
         v.addWidget(lst)
         tags = QHBoxLayout()
         for text, kind in (("Best copy", "acc"), ("Done", "ok"), ("Failed", "danger")):
@@ -727,7 +775,6 @@ class LookPage(Page):
         bar.setValue(64)
         bar.setTextVisible(False)
         v.addWidget(bar)
-        return frame
 
     # ----- fonts -----
     def _load_fonts(self):
@@ -1023,18 +1070,20 @@ class KeysPage(Page):
     icon = "keys"
 
     def build(self):
-        v = scroll_page(self)
+        boxes = []
         for title, rows in KEYS:
-            sv, _ = section(v, title)
+            box = Box(title, min_h=80)
             grid = QGridLayout()
             grid.setHorizontalSpacing(16)
             grid.setVerticalSpacing(6)
             grid.setColumnStretch(1, 1)
             for r, (key, what) in enumerate(rows):
                 k = label(key, "mono")
-                k.setStyleSheet(f"QLabel {{ background: {theme.RAISED}; border: 1px solid {theme.LINE2}; "
-                                f"border-radius: 4px; padding: 1px 6px; color: {theme.TEXT}; }}")
-                grid.addWidget(k, r, 0, Qt.AlignLeft)
-                grid.addWidget(label(what, "value"), r, 1)
-            sv.addLayout(grid)
-        v.addStretch(1)
+                k.setObjectName("keycap")
+                grid.addWidget(k, r, 0, Qt.AlignLeft | Qt.AlignTop)
+                grid.addWidget(label(what, "value", wrap=True), r, 1)
+            box.v.addLayout(grid)
+            box.finish()
+            boxes.append(box)
+        right = splitter("keys_right", Qt.Vertical, boxes[1:], [420, 120], fit=True)
+        self.body.addWidget(splitter("keys_cols", Qt.Horizontal, [boxes[0], right], [600, 600]), 1)

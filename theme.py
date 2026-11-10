@@ -172,29 +172,34 @@ def _palette():
 
 
 def _png(name, draw):
-    """A tiny generated image (chevrons, ticks, sort arrows) so the style sheet needs no bundled files."""
-    path = os.path.join(tempfile.gettempdir(), f"mediatoolbox2_{name}.png")
+    """A tiny generated image (chevrons, ticks, sort arrows) so the style sheet needs no bundled files.
+    @2x and @3x copies sit beside it; Qt picks the sharp one on high-DPI screens."""
+    path = os.path.join(tempfile.gettempdir(), f"mediatoolbox3_{name}.png")
     if not os.path.exists(path):
         from PIL import Image, ImageDraw
-        img = Image.new("RGBA", (56, 56), (0, 0, 0, 0))
-        draw(ImageDraw.Draw(img))
-        img.resize((14, 14), Image.LANCZOS).save(path)
+        img = Image.new("RGBA", (168, 168), (0, 0, 0, 0))
+        draw(ImageDraw.Draw(img), 3)
+        for scale, suffix in ((3, "@3x"), (2, "@2x"), (1, "")):
+            img.resize((14 * scale, 14 * scale), Image.LANCZOS).save(path.replace(".png", f"{suffix}.png"))
     return path.replace("\\", "/")
 
 
 def _chevron(colour):
     return _png("chev_" + colour.lstrip("#"),
-                lambda d: d.line([(14, 21), (28, 35), (42, 21)], fill=colour, width=6, joint="curve"))
+                lambda d, k: d.line([(14 * k, 21 * k), (28 * k, 35 * k), (42 * k, 21 * k)], fill=colour, width=6 * k,
+                                    joint="curve"))
 
 
 def _check(colour):
     return _png("check_" + colour.lstrip("#"),
-                lambda d: d.line([(13, 29), (24, 40), (44, 16)], fill=colour, width=7, joint="curve"))
+                lambda d, k: d.line([(13 * k, 29 * k), (24 * k, 40 * k), (44 * k, 16 * k)], fill=colour, width=7 * k,
+                                    joint="curve"))
 
 
 def _tri(colour, up):
     pts = [(14, 36), (42, 36), (28, 18)] if up else [(14, 20), (42, 20), (28, 38)]
-    return _png(("up_" if up else "down_") + colour.lstrip("#"), lambda d: d.polygon(pts, fill=colour))
+    return _png(("up_" if up else "down_") + colour.lstrip("#"),
+                lambda d, k: d.polygon([(x * k, y * k) for x, y in pts], fill=colour))
 
 
 def _tag(name, colour, fill):
@@ -216,6 +221,9 @@ def stylesheet():
     * {{ outline: 0; }}
     QWidget {{ color: {TEXT}; font-family: "{FAMILY}"; font-size: {fs}px; }}
     QMainWindow, QWidget#root, QStackedWidget, QWidget#page, QWidget#pagehost {{ background: {GROUND}; }}
+    QLabel#keycap {{ background: {RAISED}; border: 1px solid {LINE2}; border-radius: 4px; padding: 1px 6px;
+        color: {TEXT}; }}
+    QWidget#root[framed="true"] {{ border: 1px solid {LINE2}; }}
     QLabel {{ background: transparent; }}
     QLabel[role="title"] {{ font-size: {text_px('title')}px; font-weight: 700; }}
     QLabel[role="heading"] {{ font-weight: 600; }}
@@ -330,7 +338,9 @@ def stylesheet():
     QTreeView::item, QListView::item, QTableView::item {{ min-height: {rh}px; padding: 0px 4px; border: none; }}
     QTreeView::item:hover, QListView::item:hover, QTableView::item:hover {{ background: {TINT_HOVER}; }}
     QTreeView::item:selected, QListView::item:selected, QTableView::item:selected {{
-        background: {TINT_SELECT}; color: {TEXT}; border-top: 1px solid {ACCENT}; border-bottom: 1px solid {ACCENT}; }}
+        background: {TINT_SELECT}; color: {TEXT}; }}
+    QTreeView {{ show-decoration-selected: 1; }}
+    QTreeView::branch:selected {{ background: {TINT_SELECT}; }}
     QListView#grid::item, QListView#grid::item:selected, QListView#grid::item:hover {{ background: transparent; border: none; }}
     QTreeView::branch {{ background: transparent; }}
     QHeaderView {{ background: {PANEL}; border: none; }}

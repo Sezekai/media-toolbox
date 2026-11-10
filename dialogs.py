@@ -9,7 +9,7 @@ from PySide6.QtGui import QColor
 
 import icons
 import theme
-from widgets import ElidedLabel, button, caption, label
+from widgets import ElidedLabel, TintDelegate, button, caption, label
 
 _host = None  # the main window's root widget
 
@@ -199,6 +199,7 @@ def review_moves(title, ops, action="Move"):
     overlay.v.addWidget(label("Nothing moves until you click the button. Untick a file to leave it where it is, or "
                               "double-click its destination to choose another folder.", "muted", wrap=True))
     tree = QTreeWidget()
+    tree.setItemDelegate(TintDelegate(tree))
     tree.setHeaderLabels(["File", "From", "To", ""])
     tree.setRootIsDecorated(False)
     tree.setUniformRowHeights(True)

@@ -169,44 +169,80 @@ def _draw(name, colour, size):
 
 
 _cache = {}
+_pixmaps = {}
 
 
-def _to_icon(img, size):
-    qimg = QImage(img.tobytes("raw", "RGBA"), size, size, 4 * size, QImage.Format_RGBA8888).copy()
-    return QIcon(QPixmap.fromImage(qimg))
+def scales():
+    """Pixel densities to draw at: 1x, 2x and the sharpest screen's (so icons stay crisp at 125-300% scaling,
+    and when the window moves between screens)."""
+    from PySide6.QtGui import QGuiApplication
+    app = QGuiApplication.instance()
+    top = max((sc.devicePixelRatio() for sc in app.screens()), default=1.0) if app else 1.0
+    return sorted({1, 2, max(2, math.ceil(top))})
+
+
+def _qpixmap(img, scale):
+    qimg = QImage(img.tobytes("raw", "RGBA"), img.width, img.height, 4 * img.width,
+                  QImage.Format_RGBA8888).copy()
+    pm = QPixmap.fromImage(qimg)
+    pm.setDevicePixelRatio(scale)
+    return pm
+
+
+def _render(key, size, draw):
+    """draw(pixels) -> a Pillow image of that many pixels. Returns (QIcon, sharpest QPixmap)."""
+    if key not in _cache:
+        icon_ = QIcon()
+        best = None
+        for sc in scales():
+            pm = _qpixmap(draw(size * sc), sc)
+            icon_.addPixmap(pm)
+            best = pm
+        _cache[key] = icon_
+        _pixmaps[key] = best
+    return _cache[key], _pixmaps[key]
 
 
 def icon(name, colour=None, size=16):
-    """A QIcon of the named icon, drawn at the given size in pixels."""
+    """A QIcon of the named icon, drawn at the given size in pixels (sharp on high-DPI screens)."""
     colour = colour or theme.TEXT
-    key = (name, colour, size)
-    if key not in _cache:
-        img = _draw(name, colour, size * SUPERSAMPLE).resize((size, size), Image.LANCZOS).convert("RGBA")
-        _cache[key] = _to_icon(img, size)
-    return _cache[key]
+    return _render((name, colour, size), size, lambda px: _draw(name, colour, px * SUPERSAMPLE).resize(
+        (px, px), Image.LANCZOS).convert("RGBA"))[0]
 
 
 def pixmap(name, colour=None, size=16):
-    return icon(name, colour, size).pixmap(size, size)
+    """The icon as a pixmap that keeps its logical size and is drawn at the screen's full sharpness."""
+    icon(name, colour, size)
+    return _pixmaps[(name, colour or theme.TEXT, size)]
 
 
 def swatch(colours, size=18, round_=True):
     """A colour sample: one colour, or a gradient of several (for theme and accent pickers)."""
     if isinstance(colours, str):
         colours = [colours]
+    return _render(("swatch", tuple(colours), size, round_), size, lambda px: _swatch(colours, px, round_))[0]
+
+
+def swatch_pixmap(colours, size=18, round_=True):
+    if isinstance(colours, str):
+        colours = [colours]
+    swatch(colours, size, round_)
+    return _pixmaps[("swatch", tuple(colours), size, round_)]
+
+
+def _swatch(colours, size, round_):
     big = size * SUPERSAMPLE
     img = Image.new("RGBA", (big, big), (0, 0, 0, 0))
-    strip = Image.new("RGBA", (big, big))
-    px = strip.load()
     stops = [tuple(int(c[i:i + 2], 16) for i in (1, 3, 5)) for c in colours]
+    strip = Image.new("RGBA", (big, 1))
+    px = strip.load()
     for x in range(big):
         t = x / max(1, big - 1) * (len(stops) - 1)
         i = min(int(t), len(stops) - 2) if len(stops) > 1 else 0
         f = t - i
         a, b = stops[i], stops[min(i + 1, len(stops) - 1)]
-        c = tuple(round(a[j] + (b[j] - a[j]) * f) for j in range(3)) + (255,)
-        for y in range(big):
-            px[x, y] = c
+        px[x, 0] = tuple(round(a[j] + (b[j] - a[j]) * f) for j in range(3)) + (255,)
+    strip = strip.resize((big, big))
     mask = Image.new("L", (big, big), 0)
     inset = big * 0.08
     if round_:
@@ -214,5 +250,4 @@ def swatch(colours, size=18, round_=True):
     else:
         ImageDraw.Draw(mask).rounded_rectangle([inset, inset, big - inset, big - inset], radius=big * 0.18, fill=255)
     img.paste(strip, (0, 0), mask)
-    img = img.resize((size, size), Image.LANCZOS).convert("RGBA")
-    return _to_icon(img, size)
+    return img.resize((size, size), Image.LANCZOS).convert("RGBA")

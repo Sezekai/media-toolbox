@@ -151,7 +151,9 @@ def selftest(out_dir):
         window.show()
         for key in [t[0] for t in TOOLS] + ["look", "settings", "keys"]:
             window.show_page(key)
-            app.processEvents()
+            end = time.monotonic() + 0.4
+            while time.monotonic() < end:
+                app.processEvents()
             window.grab().save(str(out / f"{key}.png"))
             report.append(f"Screen {key}: OK")
         for w, h in ((1100, 680), (1920, 1080)):

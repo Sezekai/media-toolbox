@@ -4,8 +4,9 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QObject, QPoint, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QPen
 from PySide6.QtWidgets import (QButtonGroup, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QLayout,
-                               QLineEdit, QPushButton, QSizePolicy, QStyledItemDelegate, QTreeWidget, QTreeWidgetItem,
+                               QLineEdit, QPushButton, QSizePolicy, QStyle, QStyledItemDelegate, QTreeWidget, QTreeWidgetItem,
                                QTreeWidgetItemIterator, QVBoxLayout, QWidget)
 
 import icons
@@ -346,6 +347,7 @@ def make_tree(headers, widths, ticks=False):
     """A table whose first column takes the spare width, so it never scrolls sideways.
     The other columns keep their width and can be dragged wider or narrower."""
     tree = QTreeWidget()
+    tree.setItemDelegate(TintDelegate(tree))
     tree.setHeaderLabels(list(headers))
     tree.setRootIsDecorated(False)
     tree.setUniformRowHeights(True)
@@ -364,15 +366,47 @@ def make_tree(headers, widths, ticks=False):
     return tree
 
 
+def fit(source, size, dpr=1.0):
+    """source (QPixmap or QImage) scaled to fit size (logical pixels), drawn at the screen's full sharpness."""
+    from PySide6.QtCore import QSize as _QSize
+    target = _QSize(max(1, int(size.width() * dpr)), max(1, int(size.height() * dpr)))
+    out = source.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    out.setDevicePixelRatio(dpr)
+    return out
+
+
 class TintDelegate(QStyledItemDelegate):
-    """Paints a row's background colour (the tick tint) under the normal item. The style sheet's item rules
-    would otherwise hide it."""
+    """Paints a row's tick tint under the item and the selected row's accent outline over it, across the
+    whole row (the style sheet's item rules would otherwise hide the tint and cut the outline at each cell)."""
 
     def paint(self, painter, option, index):
+        r = option.rect
+        left = 0 if index.column() == 0 else r.left()  # include a tree's indent and branch area
         bg = index.data(Qt.BackgroundRole)
         if bg is not None:
-            painter.fillRect(option.rect, bg)
+            painter.fillRect(QRect(left, r.top(), r.right() - left + 1, r.height()), bg)
         super().paint(painter, option, index)
+        if option.state & QStyle.StateFlag.State_Selected:
+            view = self.parent()
+            painter.save()
+            painter.setPen(QPen(QColor(theme.ACCENT), 1))
+            right = r.right()
+            if hasattr(view, "header"):
+                cols = view.header().count()
+            elif hasattr(view, "horizontalHeader"):
+                cols = view.horizontalHeader().count()
+            else:
+                cols = 1
+            last = index.column() == cols - 1
+            if last and view is not None:
+                right = view.viewport().width() - 1
+            painter.drawLine(left, r.top(), right, r.top())
+            painter.drawLine(left, r.bottom(), right, r.bottom())
+            if index.column() == 0:
+                painter.drawLine(0, r.top(), 0, r.bottom())
+            if last:
+                painter.drawLine(right, r.top(), right, r.bottom())
+            painter.restore()
 
 
 class Ticking(QObject):
@@ -672,6 +706,7 @@ class FolderChecklist(QWidget):
         none_btn.clicked.connect(lambda: self._set_all(False))
         v.addLayout(results_bar(self.count, all_btn, none_btn))
         self.tree = QTreeWidget()
+        self.tree.setItemDelegate(TintDelegate(self.tree))
         self.tree.setHeaderLabels([title])
         self.tree.setRootIsDecorated(recursive)
         self.tree.setSelectionMode(QTreeWidget.NoSelection)

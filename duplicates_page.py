@@ -24,7 +24,7 @@ import theme
 import thumbs
 from media_utils import VIDEO_EXTENSIONS, open_path, show_in_explorer
 from pages_common import ToolPage, plural
-from widgets import (Banner, ElidedLabel, EmptyState, FlowLayout, Segmented, Ticking, add_folder, button, divider,
+from widgets import (Banner, TintDelegate, fit, ElidedLabel, EmptyState, FlowLayout, Segmented, Ticking, add_folder, button, divider,
                      field_label, label, line_edit, muted, remember, remembered, results_panel, set_tag, tag,
                      tool_row, toolbar, wrap_row)
 
@@ -129,7 +129,7 @@ class CopyCard(QFrame):
         height = int(inner * 9 / 16)
         self.thumb.setFixedSize(inner, height)
         if self.pixmap is not None:
-            self.thumb.setPixmap(self.pixmap.scaled(inner, height, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            self.thumb.setPixmap(fit(self.pixmap, QSize(inner, height), self.devicePixelRatioF()))
         else:
             self.thumb.setPixmap(icons.pixmap("silent", theme.FAINT, 24))
         self.v.setContentsMargins(pad, pad, pad, pad)
@@ -212,6 +212,7 @@ class DuplicatesPage(ToolPage):
 
         # ----- left: videos to check and matching options -----
         self.files = QTreeWidget()
+        self.files.setItemDelegate(TintDelegate(self.files))
         self.files.setHeaderLabels(["Video", "State"])
         self.files.setRootIsDecorated(False)
         self.files.setUniformRowHeights(True)
