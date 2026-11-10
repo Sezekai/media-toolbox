@@ -281,11 +281,11 @@ Choose per app:
 
 ### Keyboard (Default)
 
-Every new app uses these meanings. Keys an app needs for itself use letters that aren't in this table. Every app lists its keys on its Keys screen (K).
+Every new app uses these meanings. Keys an app needs for itself use letters that aren't in this table. Every app lists its keys in its keyboard shortcuts popup (K), described in DESIGN.md under "Keyboard shortcuts popup".
 
 | Key | Does |
 | --- | --- |
-| K | Keyboard shortcuts |
+| K | Open or close the keyboard shortcuts popup, on any screen |
 | / | Search. In an app whose main box is for sorting or filtering, it jumps to that box instead. Ctrl+F does the same. |
 | F, F11 | Full screen |
 | H | Hide the panels, so only the content shows (press again, or Esc, to bring them back) |
@@ -299,7 +299,7 @@ Every new app uses these meanings. Keys an app needs for itself use letters that
 | + −, Ctrl + mouse wheel | Make whatever is in view bigger or smaller (zoom, thumbnail size) |
 | 0, 1 | Fit; actual size (100%) |
 | Ctrl+Z | Undo the last move |
-| Esc | Close or leave, innermost first (dialog, then full view, then full screen, then the log) |
+| Esc | Close or leave, innermost first (the shortcuts popup or a dialog, then full view, then full screen, then the log) |
 | Ctrl+Shift+I | Developer tools (for bug reports) |
 
 Notes:
@@ -394,7 +394,7 @@ Every app's repo has:
 1. Plan the app with the owner before building; settle anything in these files marked "When relevant" or "App chooses".
 2. Create the private repo `Sezekai/<app>`. Copy in DESIGN.md and STANDARDS.md, and write README.md and PRODUCT.md.
 3. Set up the folder layout (section 3), with the root and data overrides for tests.
-4. Build the window shell from DESIGN.md: title bar, rail, status bar, log drawer, Keys screen, Settings (with Storage and Reset), and Appearance.
+4. Build the window shell from DESIGN.md: title bar, rail, status bar, log drawer, keyboard shortcuts popup, Settings (with Storage and Reset), and Appearance.
 5. Put in the file rules (section 2) and the progress display (section 5) before any feature uses them.
 6. Write the GitHub Actions workflow: tests → build → packaged self-test → numbered release.
 7. Before handing over, check it in the real app at 1100, 1440 and 1920 wide, and give the owner the release download link.

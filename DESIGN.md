@@ -128,7 +128,7 @@ When an app lets the owner group things, each group may carry a colour: categori
 
 ### Title bar (32 px), no menu bar
 
-- **No menu:** there's no File / Edit / View menu. Anything an app needs from one lives in the app itself: a rail item, a button, or a shortcut listed under Keys.
+- **No menu:** there's no File / Edit / View menu. Anything an app needs from one lives in the app itself: a rail item, a button, or a shortcut listed in the keyboard shortcuts popup (K).
 - **The strip:**
   - It's the `ground` colour with a 1 px `line` underneath, running the full width, under the window buttons too.
   - On the left: the app name in `text` (12 px, weight 600), then `·` and the current screen in `faint`.
@@ -147,7 +147,7 @@ When an app lets the owner group things, each group may carry a colour: categori
 
 - The logo tile is first, in the accent.
 - **Tools come next,** each a 19 px icon with an 11 px label under it, so every item is named.
-- **At the bottom:** Look (Appearance), Settings, Keys (shortcuts) and Log.
+- **At the bottom:** Look (Appearance), Settings, Keys and Log. Keys opens the keyboard shortcuts popup (it isn't a screen); Log opens the log drawer.
 - The active item gets a `raised` background and an accent icon.
 - A small accent dot marks an item that needs attention (for example the engine isn't installed).
 - **Count badges (when relevant):** apps with queues or inboxes show a small accent badge with a number on the icon's corner ("3").
@@ -251,6 +251,17 @@ A segmented control in the work area's summary line switches between them, with 
 - **Dialogs:** in-app only (no Windows pop-ups). A title, a sentence, an optional input, and actions on the right. Enter confirms; Esc cancels. File and folder pickers stay native.
 - **Toasts:** bottom right, 4–7 s, with an icon in `ok` / `danger` / accent. Used for "done" and short errors. Long errors go to the log.
 - **Pop-ups** (view options, menus): `panel` with a `line2` border and a soft shadow; closed by clicking outside or Esc.
+
+### Keyboard shortcuts popup
+
+Every app shows its keys in a popup, not on a screen of their own, so they can be read without leaving the work.
+
+- **Opening:** K on any screen, or Keys in the rail. It opens over whatever screen is showing.
+- **Closing:** K again, Esc, or a click anywhere outside the popup. Closing leaves the screen exactly as it was.
+- **Look:** a `panel` card with the dialog's corners and shadow over a dim scrim, titled "Keyboard shortcuts", with "K or Esc closes" in the caption style beside the title. Keys are shown as keycaps (mono font, `raised` fill, `line2` border, 4 px corners) with what they do beside them, grouped under small headings (Anywhere, then each kind of view, then Dialogs, then keys for this screen if it has its own).
+- **Always fits the window:** it never runs past the window's edges. When the keys don't fit in one column, they flow into more columns (each about 340 px wide) before anything scrolls; a group's heading stays with its first key. Only when the window is too narrow for enough columns does the popup scroll, and then only up and down.
+- **Resizing** the window while it's open reflows the columns.
+- While it's open, other single-letter keys do nothing.
 
 ### Icons, focus and motion
 

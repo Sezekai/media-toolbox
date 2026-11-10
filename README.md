@@ -13,7 +13,7 @@ Small, everyday tools for your own videos and pictures, in one portable Windows 
 | **Zip subfolders** | Makes one `.zip` per folder inside a folder. |
 | **Copy folder structure** | Recreates a folder's folders somewhere else, without the files. |
 
-Plus: **Look** (themes, colours, fonts, corners and spacing), **Settings** (behaviour, the duplicate engine, storage, Diagnose and Repair, resets) and **Keys**.
+Plus: **Look** (themes, colours, fonts, corners and spacing), **Settings** (behaviour, the duplicate engine, storage, Diagnose and Repair, resets) and the **keyboard shortcuts popup** (K, on any screen).
 
 ### Safe by design
 - Nothing is ever deleted for good: removals go to the Recycle Bin and are written to `deletions.csv`.
@@ -44,7 +44,8 @@ Single letters work when you're not typing in a box.
 
 | Key | Does |
 |---|---|
-| K / S | Keys / Settings |
+| K | Open or close the keyboard shortcuts popup (also Keys in the rail; Esc or a click outside closes it) |
+| S | Settings |
 | L | Open or close the log |
 | M | Hide or show the side rail |
 | H | Hide toolbars and side panels |

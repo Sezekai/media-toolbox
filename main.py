@@ -25,7 +25,7 @@ import preview
 import settings
 import theme
 import version
-from app_pages import KeysPage, LookPage, SettingsPage
+from app_pages import LookPage, SettingsPage
 from duplicates_page import DuplicatesPage
 from gif_page import GifPage
 from shell import MainWindow
@@ -43,7 +43,7 @@ TOOLS = [
 BOTTOM = [
     ("look", "Look", "look", LookPage),
     ("settings", "Settings", "settings", SettingsPage),
-    ("keys", "Keys", "keys", KeysPage),
+    ("keys", "Keys", "keys", None),
     ("log", "Log", "log", None),
 ]
 INSTANCE = "MediaToolbox-" + (os.environ.get("USERNAME") or os.environ.get("USER") or "user")
@@ -149,13 +149,20 @@ def selftest(out_dir):
         window = build_window(False, [])
         window.resize(1440, 900)
         window.show()
-        for key in [t[0] for t in TOOLS] + ["look", "settings", "keys"]:
+        for key in [t[0] for t in TOOLS] + ["look", "settings"]:
             window.show_page(key)
             end = time.monotonic() + 0.4
             while time.monotonic() < end:
                 app.processEvents()
             window.grab().save(str(out / f"{key}.png"))
             report.append(f"Screen {key}: OK")
+        for w, h in ((1100, 680), (1440, 900), (1920, 1080), (1100, 420)):
+            window.resize(w, h)
+            window.keys_popup.open_popup()
+            app.processEvents()
+            window.grab().save(str(out / f"keys-{w}x{h}.png"))
+            window.keys_popup.close_popup()
+        report.append("Keyboard shortcuts popup: OK")
         for w, h in ((1100, 680), (1920, 1080)):
             window.resize(w, h)
             app.processEvents()

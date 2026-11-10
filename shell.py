@@ -612,6 +612,8 @@ class MainWindow(QMainWindow):
         self._previous_key = None
         self._build(tools, bottom)
         dialogs.set_host(self.root)
+        from keys_popup import KeysPopup
+        self.keys_popup = KeysPopup(self.root, lambda: getattr(self.page(), "own_keys", None))
         self.toasts = dialogs.Toasts(self.content_host, bottom_offset=STATUS_H + 8)
         theme.on_change(self._recolour)
         if self.frameless:
@@ -685,6 +687,8 @@ class MainWindow(QMainWindow):
     def rail_clicked(self, key):
         if key == "log":
             self.toggle_drawer()
+        elif key == "keys":
+            self.keys_popup.toggle()
         else:
             self.show_page(key)
 
@@ -896,6 +900,10 @@ class MainWindow(QMainWindow):
         key, mods = event.key(), event.modifiers()
         ctrl = bool(mods & Qt.ControlModifier)
         shift = bool(mods & Qt.ShiftModifier)
+        if self.keys_popup.isVisible():
+            if key in (Qt.Key_Escape, Qt.Key_K) and not ctrl:
+                self.keys_popup.close_popup()
+            return True  # while the shortcuts are showing, other keys do nothing
         if dialogs.host() is not None and any(c.objectName() == "scrim" and c.isVisible()
                                                for c in self.root.children() if isinstance(c, QWidget)):
             return False  # a dialog is open: it handles its own keys
@@ -918,7 +926,7 @@ class MainWindow(QMainWindow):
         if ctrl or (mods & Qt.AltModifier) or typing:
             return False
         in_list = isinstance(QApplication.focusWidget(), QAbstractItemView)
-        letters = {Qt.Key_K: lambda: self.show_page("keys"), Qt.Key_S: lambda: self.show_page("settings"),
+        letters = {Qt.Key_K: self.keys_popup.toggle, Qt.Key_S: lambda: self.show_page("settings"),
                    Qt.Key_L: self.toggle_drawer, Qt.Key_M: self.toggle_rail, Qt.Key_H: self.toggle_panels,
                    Qt.Key_F: self.toggle_fullscreen, Qt.Key_F11: self.toggle_fullscreen}
         if key in letters:
