@@ -47,8 +47,10 @@ def make(path):
                 img.thumbnail((MAX, MAX))
                 img.convert("RGB").save(tmp, "JPEG", quality=82)
         else:
+            # Like File Explorer: a video's own cover picture when it has one, otherwise a frame from it.
             from gif_maker import extract_frame
-            img = extract_frame(path, 1.0, MAX) or extract_frame(path, 0.0, MAX)
+            from video_covers import read_cover
+            img = read_cover(path, MAX) or extract_frame(path, 1.0, MAX) or extract_frame(path, 0.0, MAX)
             if img is None:
                 return None
             img.convert("RGB").save(tmp, "JPEG", quality=82)

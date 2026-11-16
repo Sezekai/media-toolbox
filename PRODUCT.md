@@ -10,7 +10,7 @@ Windows desktop (a PySide6 desktop app, packaged as a single portable .exe). Thi
 The app's owner, on their own Windows PC, for everyday file tasks on their own media. The app is for personal use; there is no other audience confirmed.
 
 ## Product Purpose
-Media Toolbox bundles small, everyday file tools in one window: finding and sorting videos, making GIFs, zipping folders, converting images and copying folder structures, plus finding duplicate videos. Success means each tool does its job quickly and safely, and nothing is permanently deleted without a trace.
+Media Toolbox bundles small, everyday file tools in one window: finding and sorting videos, making GIFs, choosing the thumbnail Windows shows for a video, zipping folders, converting images and copying folder structures, plus finding duplicate videos. Success means each tool does its job quickly and safely, and nothing is permanently deleted without a trace.
 
 ## Positioning
 One portable program that gathers several small file tools behind a single side rail, with a shared activity log and a Recycle-Bin-only rule for removals. Unlike a folder of separate scripts, every tool shows what it is doing and can be undone through the Recycle Bin.
@@ -19,7 +19,7 @@ One portable program that gathers several small file tools behind a single side 
 Used on the owner's Windows PC, usually with folders on local drives. Long-running jobs (scans, conversions, the duplicate engine) run in the background and report progress and errors in the shared log. FFmpeg is bundled in the .exe. The duplicate tool downloads its detection engine (vdf-cli) when asked, into Models\vdf-cli beside the app folder, and copies the bundled FFmpeg into Models\ffmpeg for it.
 
 ## Capabilities and Constraints
-- Tools: Silent videos, GIF maker, Zip subfolders, WebP to JPG, Copy folder structure, Duplicate videos.
+- Tools: Silent videos, GIF maker, Video thumbnails, Zip subfolders, WebP to JPG, Copy folder structure, Duplicate videos.
 - Removals go to the Recycle Bin and are logged; nothing is permanently deleted.
 - Must stay a single portable .exe built with PyInstaller (see build.bat and the GitHub Actions workflow).
 - Must keep the existing tools working; new tools are added alongside them.
@@ -34,7 +34,7 @@ Used on the owner's Windows PC, usually with folders on local drives. Long-runni
 - No count badges on the rail; the rail only shows a dot when the duplicate engine isn't installed.
 
 ## Viewer decisions
-- Silent videos, WebP to JPG and GIF maker show their files as a collection with List, Grid and Gallery views, a folder tree with counts, sorting and a size slider. List is the default for videos, Grid for pictures.
+- Silent videos, WebP to JPG, GIF maker and Video thumbnails show their files as a collection with List, Grid and Gallery views, a folder tree with counts, sorting and a size slider. List is the default for videos, Grid for pictures.
 - Gallery shows one item with nothing drawn over it and a 300 px side panel. Only one video plays at a time; volume is remembered; videos always start from the beginning.
 - Silent previews play on duplicate cards while the pointer rests on them (Settings can turn this off; safe mode turns it off).
 

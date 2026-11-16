@@ -26,6 +26,7 @@ import settings
 import theme
 import version
 from app_pages import LookPage, SettingsPage
+from cover_page import CoverPage
 from duplicates_page import DuplicatesPage
 from gif_page import GifPage
 from shell import MainWindow
@@ -35,6 +36,7 @@ from widgets import Banner, button
 TOOLS = [
     ("silent", "Silent videos", "Silent", "silent", SilentPage),
     ("gif", "GIF maker", "GIF", "gif", GifPage),
+    ("cover", "Video thumbnails", "Thumbnail", "cover", CoverPage),
     ("dup", "Duplicate videos", "Duplicates", "duplicate", DuplicatesPage),
     ("webp", "WebP to JPG", "WebP", "image", WebpPage),
     ("zip", "Zip subfolders", "Zip", "zip", ZipPage),

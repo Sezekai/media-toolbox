@@ -49,7 +49,7 @@ def name_column():
 
 
 def size_column():
-    return Column("size", "Size", 74, text=lambda i: fileops.human_size(i["size"]) if i.get("size") else "",
+    return Column("size", "Size", 84, text=lambda i: fileops.human_size(i["size"]) if i.get("size") else "",
                   sort=lambda i: i.get("size") or 0, align=Qt.AlignRight)
 
 

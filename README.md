@@ -8,6 +8,7 @@ Small, everyday tools for your own videos and pictures, in one portable Windows 
 |---|---|
 | **Silent videos** | Finds videos with no sound (or, if you like, very quiet ones) in one or more folders, then moves the ones you tick to another folder. Every move can be undone. |
 | **GIF maker** | Turns videos into GIFs. Each video can have its own timeframe, frame rate, width and file name; tick several to set them together. "Match each video" keeps every video's own frame rate and width. |
+| **Video thumbnails** | Chooses the picture File Explorer shows for a video: any frame from it, or any picture. Pick one per video, or for every ticked video at once (for example the frame 30% of the way in), then set them all. The video and sound are copied, not re-encoded, and each original goes to the Recycle Bin. MP4 and M4V show in File Explorer; MKV needs a thumbnail add-on such as Icaros. |
 | **Duplicate videos** | Finds copies of a video, including smaller re-encodes and clips cut from a longer video, using [Video Duplicate Finder](https://github.com/0x90d/videoduplicatefinder)'s engine. Search a folder, or check new videos against a library one at a time. Uses an NVIDIA GPU when there is one. |
 | **WebP to JPG** | Converts `.webp` pictures to `.jpg` beside each original, and can send the originals to the Recycle Bin. |
 | **Zip subfolders** | Makes one `.zip` per folder inside a folder. |
