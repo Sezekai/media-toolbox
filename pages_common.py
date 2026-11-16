@@ -19,6 +19,7 @@ class ToolPage(Page):
     and says "Add … to the queue" while another job runs (B5, B13)."""
     key = "tool"
     folder_noun = "folder"
+    drop_exts = None  # file kinds this screen takes when they're dropped on it (None: folders only)
 
     def folders_row(self, row, recursive_default=True, add_text="Add folder…"):
         """Row one of the toolbar: Folders, what's added, Add folder…, Include subfolders."""
@@ -41,10 +42,13 @@ class ToolPage(Page):
 
     def _show_roots(self):
         if not self.roots:
-            self.roots_label.setText("None yet. Add a folder to start.")
+            self.roots_label.setText("None yet. Add a folder, or drag folders or files in.")
         else:
             names = ", ".join(Path(r).name or r for r in self.roots)
-            self.roots_label.setText(f"{plural(len(self.roots), 'folder')}: {names}")
+            files = sum(1 for r in self.roots if Path(r).is_file())
+            what = (plural(len(self.roots), "folder") if not files else
+                    plural(len(self.roots), "file") if files == len(self.roots) else f"{len(self.roots)} added")
+            self.roots_label.setText(f"{what}: {names}")
         self.roots_label.setToolTip("\n".join(self.roots))
 
     def pick_root(self):
@@ -60,6 +64,41 @@ class ToolPage(Page):
         self._save_roots()
         self.roots_changed()
 
+    # ----- dragging folders and files in -----
+    def _droppable(self, paths):
+        ok = []
+        for path in paths:
+            pp = Path(path)
+            if pp.is_dir() or (self.drop_exts and pp.is_file() and pp.suffix.lower() in self.drop_exts):
+                ok.append(str(pp))
+        return ok
+
+    def drop_text(self, paths):
+        if not hasattr(self, "roots"):
+            return ""
+        ok = self._droppable(paths)
+        if not ok:
+            return ""
+        dirs = sum(1 for p in ok if Path(p).is_dir())
+        files = len(ok) - dirs
+        parts = ([plural(dirs, "folder")] if dirs else []) + ([plural(files, "file")] if files else [])
+        return "Drop to add " + " and ".join(parts)
+
+    def dropped(self, paths):
+        added = 0
+        for path in self._droppable(paths):
+            if not any(Path(path) == Path(r) for r in self.roots):
+                self.roots.append(path)
+                added += 1
+        skipped = len(paths) - len(self._droppable(paths))
+        if added:
+            self._save_roots()
+            self.roots_changed()
+        if skipped:
+            self.app.toast(f"{plural(skipped, 'item')} left out: this tool doesn't use that kind of file.", "info")
+        elif not added:
+            self.app.toast("Those are already on the list.", "info")
+
     def remove_root(self, root):
         self.roots = [r for r in self.roots if Path(r) != Path(root)]
         self._save_roots()
@@ -74,7 +113,7 @@ class ToolPage(Page):
 
     def missing_roots(self):
         """Folders that are gone (a drive unplugged, or deleted): named, never silently skipped."""
-        return [r for r in self.roots if not Path(r).is_dir()]
+        return [r for r in self.roots if not Path(r).exists()]
 
     def check_roots(self):
         if not self.roots:
@@ -89,7 +128,7 @@ class ToolPage(Page):
         return True
 
     def live_roots(self):
-        return [r for r in self.roots if Path(r).is_dir()]
+        return [r for r in self.roots if Path(r).exists()]
 
     # ----- the main button -----
     def set_main(self, b, text, queued_text):

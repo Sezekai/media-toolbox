@@ -167,8 +167,10 @@ def _tell_explorer(path):
         return
     try:
         import ctypes
-        SHCNE_UPDATEITEM, SHCNF_PATHW = 0x00002000, 0x0005
+        SHCNE_UPDATEITEM, SHCNE_UPDATEDIR, SHCNF_PATHW = 0x00002000, 0x00001000, 0x0005
         ctypes.windll.shell32.SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, ctypes.c_wchar_p(str(path)), None)
+        ctypes.windll.shell32.SHChangeNotify(SHCNE_UPDATEDIR, SHCNF_PATHW, ctypes.c_wchar_p(str(Path(path).parent)),
+                                             None)
     except Exception:
         pass
 
@@ -205,7 +207,7 @@ def set_cover(path, picture, log=print, keep_date=False):
             for i in keep:
                 cmd += ["-map", f"0:{i}"]
             cmd += ["-map", "1:0", "-map_metadata", "0", "-map_chapters", "0", "-c", "copy",
-                    f"-disposition:v:{real_video}", "attached_pic"]
+                    f"-disposition:v:{real_video}", "attached_pic", "-movflags", "+faststart"]
         else:
             # MKV: everything but the old cover (subtitles, fonts and chapters too), plus cover.jpg attached
             if _other_pictures(path):
@@ -245,7 +247,10 @@ def remove_cover(path, log=print, keep_date=False):
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(path), "-map", "0"]
         for i in _cover_streams(path):
             cmd += ["-map", f"-0:{i}"]
-        cmd += ["-map_metadata", "0", "-map_chapters", "0", "-c", "copy", str(out)]
+        cmd += ["-map_metadata", "0", "-map_chapters", "0", "-c", "copy"]
+        if ext in MP4_LIKE:
+            cmd += ["-movflags", "+faststart"]
+        cmd.append(str(out))
         result = run(cmd)
         if result.returncode != 0 or not out.exists():
             lines = (result.stderr or "").strip().splitlines()

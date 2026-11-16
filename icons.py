@@ -170,10 +170,9 @@ def _draw(name, colour, size):
     elif name == "win_close":
         line((7, 7), (17, 17))
         line((17, 7), (7, 17))
-    elif name == "logo":         # three tiles
-        box(3.5, 3.5, 10.5, 10.5, 2)
-        box(13.5, 3.5, 20.5, 10.5, 2)
-        box(8.5, 13.5, 15.5, 20.5, 2)
+    elif name == "logo":         # three solid tiles (the same mark as the app's icon)
+        for x0, y0, x1, y1 in ((3, 3, 11, 11), (13, 3, 21, 11), (8, 13, 16, 21)):
+            d.rounded_rectangle([x0 * k, y0 * k, x1 * k, y1 * k], radius=1.8 * k, fill=colour)
     return img
 
 

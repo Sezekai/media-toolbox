@@ -72,7 +72,7 @@ def make_item(path, root, **extra):
     except OSError:
         size, mtime = 0, 0
     try:
-        rel = p.parent.relative_to(root).as_posix()
+        rel = "." if Path(root).is_file() else p.parent.relative_to(root).as_posix()
     except ValueError:
         rel = str(p.parent)
     item = {"path": str(p), "name": p.name, "root": str(root), "rel_folder": "" if rel == "." else rel,
@@ -249,6 +249,7 @@ class FolderTree(QTreeWidget):
         self.itemClicked.connect(self._clicked)
         self.setItemDelegate(TintDelegate(self))
         self._roots = []
+        self.file_icon = "image"
 
     def fill(self, roots, items):
         current = self.currentItem().data(0, Qt.UserRole) if self.currentItem() else None
@@ -274,7 +275,7 @@ class FolderTree(QTreeWidget):
             node = QTreeWidgetItem([Path(root).name or str(root), str(c.get("", 0)), ""])
             node.setToolTip(0, str(root))
             node.setData(0, Qt.UserRole, (str(root), None))
-            node.setIcon(0, icons.icon("folder", theme.ACCENT, 16))
+            node.setIcon(0, icons.icon(self.file_icon if Path(root).is_file() else "folder", theme.ACCENT, 16))
             self._style_count(node)
             self.addTopLevelItem(node)
             x = QPushButton()
@@ -705,6 +706,8 @@ class Collection(QWidget):
         self.grid.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.grid.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.grid.setItemDelegate(GridDelegate(self))
+        self.grid.setDragEnabled(False)  # icon mode would otherwise let items be dragged around
+        self.grid.setAcceptDrops(False)  # folders dropped on the grid go to the screen, which adds them
         self.grid.viewport().installEventFilter(self)
         self.stack.addWidget(self.grid)
         TickFilter(self, self.grid, grid=True)

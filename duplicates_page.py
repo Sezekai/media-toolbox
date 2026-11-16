@@ -538,6 +538,37 @@ class DuplicatesPage(ToolPage):
     def _update_zoom_label(self):
         self.zoom_label.setText(f"{round(self.zoom_level * 100)}%")
 
+    # ---------- dragging folders and videos in ----------
+    def drop_text(self, paths):
+        dirs = [p for p in paths if Path(p).is_dir()]
+        vids = [p for p in paths if Path(p).is_file() and Path(p).suffix.lower() in VIDEO_EXTENSIONS]
+        if vids:
+            return f"Drop to check {plural(len(vids), 'video')} against the library"
+        if len(dirs) == 1:
+            return (f"Drop to search {Path(dirs[0]).name}" if self.mode.value() == "folder" else
+                    f"Drop to use {Path(dirs[0]).name} as the library")
+        return ""
+
+    def dropped(self, paths):
+        vids = [str(Path(p)) for p in paths if Path(p).is_file() and Path(p).suffix.lower() in VIDEO_EXTENSIONS]
+        dirs = [str(Path(p)) for p in paths if Path(p).is_dir()]
+        if vids:
+            if self.mode.value() != "library":
+                self.mode.set_value("library")
+                self._show_mode("library")
+            present = set(self._file_paths())
+            self.files.blockSignals(True)
+            for v in vids:
+                if v not in present:
+                    self._add_file_item(v)
+            self.files.blockSignals(False)
+            self._save_file_list()
+            self.refresh_buttons()
+            if len(dirs) == 1 and not self.library.text().strip():
+                self.library.setText(dirs[0])
+        elif len(dirs) == 1:
+            (self.folder if self.mode.value() == "folder" else self.library).setText(dirs[0])
+
     # ---------- videos to check ----------
     def _add_files(self):
         start = self.library.text() or ""

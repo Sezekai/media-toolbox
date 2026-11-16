@@ -67,7 +67,15 @@ class _Overlay(QWidget):
         self.result = value
         self.loop.quit()
 
+    def fit(self):
+        """Size the card to its contents: wrapped text otherwise makes Qt guess far too tall a card."""
+        layout = self.card.layout()
+        layout.activate()
+        h = layout.totalHeightForWidth(self.card.width()) if layout.hasHeightForWidth() else layout.sizeHint().height()
+        self.card.setFixedHeight(max(80, min(h, self.parent().height() - 48)))
+
     def run(self):
+        self.fit()
         self.show()
         self.raise_()
         self.setFocus()
@@ -124,7 +132,7 @@ def ask(title, text, confirm, cancel="Cancel", kind="primary", items=None, note=
         lst.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         lst.setTextElideMode(Qt.ElideMiddle)
         lst.header().setSectionResizeMode(0, QHeaderView.Stretch)
-        lst.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        lst.header().setSectionResizeMode(1, QHeaderView.Stretch)  # names and details share the width
         lst.header().setStretchLastSection(False)
         for entry in items[:200]:
             name, detail = entry if isinstance(entry, tuple) else (entry, "")

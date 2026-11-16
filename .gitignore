@@ -10,3 +10,7 @@ ffprobe.exe
 ffmpeg.zip
 ffmpeg_tmp/
 .pytest_cache/
+MediaToolbox.ico
+version_info.txt
+*.zip
+package/

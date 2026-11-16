@@ -538,9 +538,56 @@ class Page(QWidget):
         self.body.setSpacing(theme.GAP)
         outer.addWidget(self.content, 1)
         self.build()
+        # Dragging folders or files in from File Explorer works like choosing them (see dropped()).
+        self.setAcceptDrops(True)
+        self._drop_hint = QLabel(self)
+        self._drop_hint.setObjectName("drophint")
+        self._drop_hint.setAlignment(Qt.AlignCenter)
+        self._drop_hint.setWordWrap(True)
+        self._drop_hint.hide()
 
     def build(self):
         raise NotImplementedError
+
+    # ----- dragging folders and files in -----
+    def drop_text(self, paths):
+        """What dropping these would do ("Add 2 folders"), or "" when this screen can't take them."""
+        return ""
+
+    def dropped(self, paths):
+        """Folders or files dropped on the screen."""
+
+    @staticmethod
+    def _paths(event):
+        md = event.mimeData()
+        if not md.hasUrls():
+            return []
+        return [u.toLocalFile() for u in md.urls() if u.isLocalFile() and u.toLocalFile()]
+
+    def dragEnterEvent(self, event):
+        paths = self._paths(event)
+        text = self.drop_text(paths) if paths else ""
+        if not text:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        self._drop_hint.setText(text)
+        self._drop_hint.setGeometry(self.rect().adjusted(0, 0, 0, 0))
+        self._drop_hint.show()
+        self._drop_hint.raise_()
+
+    def dragMoveEvent(self, event):
+        event.acceptProposedAction() if self._drop_hint.isVisible() else event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self._drop_hint.hide()
+
+    def dropEvent(self, event):
+        self._drop_hint.hide()
+        paths = self._paths(event)
+        if paths and self.drop_text(paths):
+            event.acceptProposedAction()
+            self.dropped(paths)
 
     def set_panels_hidden(self, hidden):
         self.header.setVisible(not hidden)

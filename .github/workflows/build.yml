@@ -47,9 +47,13 @@ jobs:
           Copy-Item (Get-ChildItem ffmpeg_tmp -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName ffmpeg.exe
           Copy-Item (Get-ChildItem ffmpeg_tmp -Recurse -Filter ffprobe.exe | Select-Object -First 1).FullName ffprobe.exe
 
+      - name: Make the icon and version details
+        run: python build_files.py
+
       - name: Build the .exe
         run: >
           pyinstaller --noconsole --onefile --name MediaToolbox --add-data "fonts;fonts"
+          --icon MediaToolbox.ico --version-file version_info.txt
           --add-binary "ffmpeg.exe;." --add-binary "ffprobe.exe;."
           main.py
 
@@ -62,6 +66,15 @@ jobs:
           Get-Content selftest\selftest.txt
           if ($p.ExitCode -ne 0) { throw "The self-test failed (exit code $($p.ExitCode))." }
 
+      - name: Package the zip
+        shell: pwsh
+        run: |
+          $v = "${{ steps.version.outputs.version }}"
+          New-Item -ItemType Directory -Force -Path "package\Media Toolbox\App" | Out-Null
+          Copy-Item dist\MediaToolbox.exe "package\Media Toolbox\App\MediaToolbox.exe"
+          Compress-Archive -Path "package\Media Toolbox" -DestinationPath "MediaToolbox-v$v-windows.zip" -CompressionLevel Optimal
+          Get-Item "MediaToolbox-v$v-windows.zip" | Format-Table Name, Length
+
       - name: Write release notes
         shell: pwsh
         run: |
@@ -69,9 +82,10 @@ jobs:
           @"
           Media Toolbox ${{ steps.version.outputs.version }}
 
-          Download MediaToolbox.exe below and run it. It's one portable program: keep it in a folder of its own
-          (for example D:\Media Toolbox\App\MediaToolbox.exe) and its Models, Fingerprints and Cache folders are
-          made beside that folder. Settings and logs live in %LOCALAPPDATA%\Media Toolbox.
+          First time: download the zip below and unzip it where you want the app (it holds
+          Media Toolbox\App\MediaToolbox.exe; the Models, Fingerprints and Cache folders are made beside App).
+          Already have it: Settings › Updates › Check now updates it from inside the app.
+          Settings and logs live in %LOCALAPPDATA%\Media Toolbox.
 
           What changed:
           $log
@@ -85,7 +99,7 @@ jobs:
           name: Media Toolbox ${{ steps.version.outputs.version }}
           body_path: notes.md
           target_commitish: ${{ github.sha }}
-          files: dist/MediaToolbox.exe
+          files: MediaToolbox-v${{ steps.version.outputs.version }}-windows.zip
 
       - name: Already released
         if: steps.version.outputs.exists == 'True'

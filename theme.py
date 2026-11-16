@@ -227,6 +227,8 @@ def stylesheet():
     * {{ outline: 0; }}
     QWidget {{ color: {TEXT}; font-family: "{FAMILY}"; font-size: {fs}px; }}
     QMainWindow, QWidget#root, QStackedWidget, QWidget#page, QWidget#pagehost {{ background: {GROUND}; }}
+    QLabel#drophint {{ background: {mix(GROUND, HIGHLIGHT, 0.14)}; border: 2px dashed {OUTLINE};
+        border-radius: {rp}px; color: {TEXT}; font-size: {text_px("title") + 2}px; font-weight: 600; }}
     QFrame#setrow {{ background: {PANEL}; border: 1px solid {LINE}; border-radius: {rc + 2}px; }}
     QFrame#keyrow {{ border-bottom: 1px solid {mix(PANEL, LINE, 0.6)}; border-radius: 0px; }}
     QFrame#keyrow[alt="true"] {{ background: {mix(PANEL, RAISED, 0.7)}; }}

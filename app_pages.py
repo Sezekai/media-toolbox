@@ -268,6 +268,17 @@ class SettingsPage(Page):
         self.findings = []
         engine_ui.on_change(self.refresh_engine)
 
+        # ----- updates -----
+        group(left, "Updates")
+        self.auto_update = QCheckBox("Check once a day")
+        self.auto_update.setChecked(saved.get("check_updates", True))
+        self.auto_update.toggled.connect(lambda on: settings.save({"check_updates": on}))
+        check_btn = button("Check now")
+        check_btn.clicked.connect(lambda: __import__("update_ui").check(self.app))
+        _f, self.update_note = setting(left, f"Version {version.__version__}",
+                                       "Updates download inside the app, so Windows doesn't stop them with a "
+                                       "\u201cprotected your PC\u201d warning.", self.auto_update, check_btn)
+
         # ----- about -----
         group(left, "About")
         logs_btn = button("Open the logs folder", icon=icons.icon("folder", theme.TEXT, 16))
@@ -296,6 +307,12 @@ class SettingsPage(Page):
             setting(right, title, note, b)
         right.addStretch(1)
         self.refresh_engine()
+
+    def show_update(self, info):
+        if info["newer"]:
+            self.update_note.setText(f"Media Toolbox {info['version']} is available.")
+        else:
+            self.update_note.setText(f"You have the newest version. Checked just now.")
 
     def shown(self):
         self.refresh_engine()

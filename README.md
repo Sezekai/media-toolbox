@@ -16,6 +16,9 @@ Small, everyday tools for your own videos and pictures, in one portable Windows 
 
 Plus: **Look** (themes, colours, fonts, corners and spacing), **Settings** (behaviour, the duplicate engine, storage, Diagnose and Repair, resets) and the **keyboard shortcuts popup** (K, on any screen).
 
+### Drag and drop
+Drag folders or files from File Explorer onto any tool instead of choosing them: folders and matching files are added to the list (videos for Silent videos, GIF maker and Video thumbnails; `.webp` pictures for WebP to JPG). On Duplicate videos, a folder becomes the folder to search (or the library), and videos are added to "Videos to check". On Zip subfolders and Copy folder structure, a folder becomes the folder to work on.
+
 ### Safe by design
 - Nothing is ever deleted for good: removals go to the Recycle Bin and are written to `deletions.csv`.
 - Every move goes into the move log (press **L**, then **Moves**) with **Undo**. **Ctrl+Z** undoes the last one.
@@ -63,7 +66,7 @@ Single letters work when you're not typing in a box.
 
 ## Download
 
-Every push to `main` builds the program, tests it and publishes a numbered release: see [Releases](../../releases). Download `MediaToolbox.exe` from the newest one.
+Every push to `main` builds the program, tests it and publishes a numbered release: see [Releases](../../releases). The first time, download `MediaToolbox-v<version>-windows.zip` from the newest one and unzip it where you want the app. After that, **Settings › Updates** checks once a day and updates from inside the app (with progress), so there's nothing to download by hand.
 
 ## Build and test it yourself
 

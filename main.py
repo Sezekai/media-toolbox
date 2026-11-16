@@ -83,10 +83,8 @@ def _bring_forward(window):
 
 
 def _app_icon():
-    icon = QIcon()
-    for size in (16, 24, 32, 48, 64, 128, 256):
-        icon.addPixmap(icons.pixmap("logo", theme.ACCENT, size))
-    return icon
+    import app_icon
+    return app_icon.qicon()
 
 
 def build_window(safe_mode, early_log):
@@ -195,7 +193,14 @@ def main():
         out = sys.argv[i + 1] if len(sys.argv) > i + 1 else "selftest"
         sys.exit(selftest(out))
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+    if sys.platform == "win32":
+        try:  # the taskbar groups the app's windows under its own icon
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Sezekai.MediaToolbox")
+        except Exception:
+            pass
     app = QApplication(sys.argv)
+    app.setWindowIcon(_app_icon())
     app.setApplicationName("Media Toolbox")
     app.setApplicationVersion(version.__version__)
     server = _single_instance()
@@ -221,6 +226,12 @@ def main():
     window = build_window(safe_mode, early)
     window_ref.append(window)
     server.newConnection.connect(lambda: (server.nextPendingConnection(), _bring_forward(window)))
+    window.instance_server = server
+    import update_ui
+    import updater
+    updater.clean_up()
+    if updater.frozen() and updater.due():
+        QTimer.singleShot(4000, lambda: update_ui.check(window, quiet=True))
     last = settings.load().get("last_page", "silent")
     window.show_page(last if last in window.pages else "silent")
     window.show()

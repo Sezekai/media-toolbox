@@ -17,7 +17,7 @@ import settings
 import theme
 import video_covers as vc
 from gif_page import Frame, fmt_time, to_pixmap
-from media_utils import find_videos, open_path, probe_video
+from media_utils import VIDEO_EXTENSIONS, find_videos, open_path, probe_video
 from pages_common import ToolPage, plural
 from tool_pages import SilentPage, file_actions
 from widgets import (ElidedLabel, Segmented, button, divider, label, line_edit, muted, remember, results_panel,
@@ -44,6 +44,7 @@ class CoverPage(ToolPage):
                 "isn't re-encoded; the original goes to the Recycle Bin.")
     key = "cover"
     icon = "cover"
+    drop_exts = VIDEO_EXTENSIONS
 
     def build(self):
         saved = settings.load()
@@ -125,6 +126,7 @@ class CoverPage(ToolPage):
             empty=("image", "Add a folder to see its videos and their thumbnails here.", "Add folder…",
                    self.pick_root))
         self.coll.tree.remove_root.connect(self.remove_root)
+        self.coll.tree.file_icon = "silent"
         self.coll.ticks_changed.connect(self._ticks_changed)
         self.coll.selection_changed.connect(self._on_current)
         self.coll.view_changed.connect(lambda v: self.editor.setVisible(v != "gallery"))

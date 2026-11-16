@@ -15,7 +15,7 @@ import icons
 import jobs
 import settings
 import theme
-from media_utils import find_videos, open_path, probe_video, show_in_explorer
+from media_utils import VIDEO_EXTENSIONS, find_videos, open_path, probe_video, show_in_explorer
 from pages_common import ToolPage, plural
 from tool_pages import SilentPage, file_actions
 from widgets import (ElidedLabel, fit, add_folder, button, divider, field_label, label, line_edit, muted, remember,
@@ -166,6 +166,7 @@ class GifPage(ToolPage):
     subtitle = "Turn videos into GIFs. Set a timeframe, frame rate, width or name for any video, or leave the defaults."
     key = "gif"
     icon = "gif"
+    drop_exts = VIDEO_EXTENSIONS
 
     def build(self):
         saved = settings.load()
@@ -269,6 +270,7 @@ class GifPage(ToolPage):
             empty=("gif", "Add a folder to see its videos here. Click one to set its clip.", "Add folder…",
                    self.pick_root))
         self.coll.tree.remove_root.connect(self.remove_root)
+        self.coll.tree.file_icon = "silent"
         self.coll.ticks_changed.connect(self._ticks_changed)
         self.coll.selection_changed.connect(self._on_current)
         self.coll.view_changed.connect(lambda v: self.editor.setVisible(v != "gallery"))

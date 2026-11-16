@@ -86,8 +86,11 @@ def probe_video(path):
 
 
 def find_files(folder, recursive, extensions):
-    """Files with one of the extensions, sorted. Unreadable folders are skipped, not fatal."""
+    """Files with one of the extensions, sorted. Unreadable folders are skipped, not fatal. A file (dropped on
+    a tool on its own) is itself, when it's the right kind."""
     folder = Path(folder)
+    if folder.is_file():
+        return [folder] if folder.suffix.lower() in extensions else []
     found = []
     if recursive:
         for dirpath, dirs, files in os.walk(folder, onerror=lambda e: None):

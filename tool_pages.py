@@ -14,7 +14,7 @@ import settings
 import silent_videos
 import theme
 import webp_convert
-from media_utils import find_videos, open_path, show_in_explorer
+from media_utils import VIDEO_EXTENSIONS, find_videos, open_path, show_in_explorer
 from pages_common import ToolPage, plural
 from widgets import (FolderChecklist, add_folder, button, divider, field_label, label, line_edit, muted,
                      results_panel, tool_row, toolbar)
@@ -40,6 +40,7 @@ class SilentPage(ToolPage):
     subtitle = "Find videos with no sound, check them, then move them to another folder. Moves can be undone."
     key = "silent"
     icon = "silent"
+    drop_exts = VIDEO_EXTENSIONS
 
     def build(self):
         saved = settings.load()
@@ -82,6 +83,7 @@ class SilentPage(ToolPage):
             empty=("silent", "Add a folder, then Scan. Silent videos show up here as they're found.",
                    "Add folder…", self.pick_root))
         self.coll.tree.remove_root.connect(self.remove_root)
+        self.coll.tree.file_icon = "silent"
         self.move_btn = button("Move", "primary", icons.icon("move", theme.ON_ACCENT, 16))
         self.move_btn.clicked.connect(self.move)
         self.coll.extra.addWidget(self.move_btn)
@@ -209,6 +211,7 @@ class WebpPage(ToolPage):
     subtitle = "Turn .webp pictures into .jpg beside each original. Originals can go to the Recycle Bin."
     key = "webp"
     icon = "image"
+    drop_exts = {".webp"}
 
     def build(self):
         saved = settings.load()
@@ -365,6 +368,14 @@ class ZipPage(ToolPage):
         self.body.addWidget(frame, 1)
         self._load()
 
+    def drop_text(self, paths):
+        dirs = [p for p in paths if Path(p).is_dir()]
+        return f"Drop to use {Path(dirs[0]).name}" if len(dirs) == 1 else ""
+
+    def dropped(self, paths):
+        self.src.setText(str(Path(next(p for p in paths if Path(p).is_dir()))))
+        self._load()
+
     def _browse(self):
         chosen = QFileDialog.getExistingDirectory(self, "Choose the folder", self.src.text())
         if chosen:
@@ -438,6 +449,14 @@ class CopyPage(ToolPage):
         frame, v = results_panel()
         v.addWidget(self.list)
         self.body.addWidget(frame, 1)
+        self._load()
+
+    def drop_text(self, paths):
+        dirs = [p for p in paths if Path(p).is_dir()]
+        return f"Drop to use {Path(dirs[0]).name}" if len(dirs) == 1 else ""
+
+    def dropped(self, paths):
+        self.src.setText(str(Path(next(p for p in paths if Path(p).is_dir()))))
         self._load()
 
     def _browse(self):
