@@ -34,3 +34,11 @@ def test_unsupported_kind(tmp_path):
     assert not vc.supported(tmp_path / "x.webm")
     done, failed = vc.apply([(str(tmp_path / "x.avi"), ("percent", 10))], log=lambda *_: None)
     assert (done, failed) == (0, 1)
+
+
+def test_make_stills(clip, tmp_path):
+    import stills
+    out = tmp_path / "stills"
+    assert stills.make([str(clip)], str(out), log=lambda *_: None) == (1, 0, 0)
+    assert sorted(p.name for p in out.iterdir()) == ["clip - middle.jpg", "clip - start.jpg"]
+    assert stills.make([str(clip)], str(out), log=lambda *_: None) == (0, 1, 0)
