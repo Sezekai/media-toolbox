@@ -208,7 +208,7 @@ class LogoTile(QWidget):
         path = QPainterPath()
         path.addRoundedRect(0, 0, 36, 36, 8, 8)
         p.fillPath(path, theme.qgradient(36, 36))
-        p.drawPixmap(8, 8, icons.pixmap("logo", theme.ON_ACCENT, 20))
+        p.drawPixmap(3, 3, icons.pixmap("logo", theme.ON_ACCENT, 30))
         p.end()
 
 

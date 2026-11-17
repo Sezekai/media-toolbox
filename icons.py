@@ -170,9 +170,9 @@ def _draw(name, colour, size):
     elif name == "win_close":
         line((7, 7), (17, 17))
         line((17, 7), (7, 17))
-    elif name == "logo":         # three solid tiles (the same mark as the app's icon)
-        for x0, y0, x1, y1 in ((3, 3, 11, 11), (13, 3, 21, 11), (8, 13, 16, 21)):
-            d.rounded_rectangle([x0 * k, y0 * k, x1 * k, y1 * k], radius=1.8 * k, fill=colour)
+    elif name == "logo":         # a gear with a play button (the same mark as the app's icon)
+        import app_icon
+        app_icon.mark(d, k, colour, (0, 0, 0, 0))
     return img
 
 
