@@ -105,6 +105,8 @@ PLACES = [
           note="Downloaded when you install it. Its licence (AGPL) doesn't allow bundling."),
     Place("ffmpeg", "FFmpeg for the duplicate engine", lambda: root() / "Models" / "ffmpeg",
           note="A copy of the FFmpeg bundled with the app, beside the engine."),
+    Place("gdl", "gallery-dl", lambda: root() / "Models" / "gallery-dl",
+          note="Downloaded when you ask, for the Downloads tool. Not used when you choose your own copy."),
     Place("fingerprints", "Fingerprint database", lambda: root() / "Fingerprints",
           note="What the engine has learned about each video. Slow to rebuild."),
     Place("thumbs", "Thumbnails", lambda: root() / "Cache" / "thumbs", cache=True,

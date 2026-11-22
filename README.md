@@ -14,6 +14,10 @@ Small, everyday tools for your own videos and pictures, in one portable Windows 
 | **WebP to JPG** | Converts `.webp` pictures to `.jpg` beside each original, and can send the originals to the Recycle Bin. |
 | **Zip subfolders** | Makes one `.zip` per folder inside a folder. |
 | **Copy folder structure** | Recreates a folder's folders somewhere else, without the files. |
+| **Downloads** | Runs [gallery-dl](https://github.com/mikf/gallery-dl) with a memory. Every download remembers what it fetched, so running it again downloads only what's new, even after you've moved or sorted the files. Two Twitter bookmark accounts (Main and Second, or both one after the other) share one history, so a tweet saved on either account downloads once. Any other page gallery-dl supports can be downloaded with its options laid out (folder, file names, login, kinds of file, dates, sizes, speed, extras), saved under a name, edited and saved again. Downloads run without saving go to Recent with their history; deleting one sends its history to the Recycle Bin. |
+
+### How Downloads knows what's new
+Each run first scans the page without downloading, then downloads exactly the new files, so the progress bar has a real total. History is gallery-dl's own download archive: Twitter files are remembered by tweet and picture number, so a retweet of something you have is skipped and moving files never makes them download again. For bookmarks (newest first) the scan stops at the files you kept from last time (on the first run, the files already in the folder), at the tweets that were at the top of the last run, or after five known tweets in a row; a tweet you bookmark again jumps to the top and never stops it early. "Stop after N in a row" (50) is the safety net. **Also skip files already in** lists the folders you sort downloads into: new files whose names are already there are remembered without downloading. Before each bookmarks run the app reads which Twitter account Firefox is signed in to and, for **Both**, waits for you to switch accounts in Firefox before doing the second one.
 
 Plus: **Look** (themes, colours, fonts, corners and spacing), **Settings** (behaviour, the duplicate engine, storage, Diagnose and Repair, resets) and the **keyboard shortcuts popup** (K, on any screen).
 
@@ -36,6 +40,8 @@ Keep the program in a folder of its own, for example `D:\Media Toolbox\App\Media
 | Settings, results, move log, logs | `%LOCALAPPDATA%\Media Toolbox` (`logs` inside it; a crash leaves `crash-<date>.txt`) |
 | Duplicate engine | `Models\vdf-cli` |
 | FFmpeg for the engine | `Models\ffmpeg` (copied from the program) |
+| gallery-dl (if downloaded by the app) | `Models\gallery-dl` (or your own `gallery-dl.exe`, chosen in Settings) |
+| Downloads lists and histories | `%LOCALAPPDATA%\Media Toolbox\Downloads` (`downloads.json`, `history\*.sqlite3`) |
 | Fingerprints of scanned videos | `Fingerprints` |
 | Thumbnails, temporary files | `Cache\thumbs`, `Cache\temp` |
 

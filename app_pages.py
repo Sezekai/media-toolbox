@@ -43,7 +43,8 @@ class Box(QFrame):
         outer.setSpacing(6)
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, theme.PAD - 2, 0)
-        head.addWidget(label(title, "heading"))
+        self.title_label = label(title, "heading")
+        head.addWidget(self.title_label)
         if note:
             head.addWidget(ElidedLabel(note, "caption"), 1)
         else:
@@ -268,6 +269,15 @@ class SettingsPage(Page):
         self.findings = []
         engine_ui.on_change(self.refresh_engine)
 
+        # ----- gallery-dl -----
+        group(left, "Downloads (gallery-dl)")
+        own = button("Use my gallery-dl.exe\u2026")
+        own.clicked.connect(lambda: __import__("gdl_ui").pick_own(self.app))
+        self.gdl_btn = button("Download it\u2026")
+        self.gdl_btn.clicked.connect(lambda: __import__("gdl_ui").install(self.app, update=True))
+        _f, self.gdl_status = setting(left, "gallery-dl (GPL)", "", own, self.gdl_btn, elide=True)
+        __import__("gdl_ui").on_change(self.refresh_gdl)
+
         # ----- updates -----
         group(left, "Updates")
         self.auto_update = QCheckBox("Check once a day")
@@ -308,6 +318,17 @@ class SettingsPage(Page):
         right.addStretch(1)
         self.refresh_engine()
 
+    def refresh_gdl(self):
+        import gdl_engine as ge
+        exe = ge.find_exe()
+        if exe is None:
+            self.gdl_status.setText("Not set up. The Downloads tool needs it.")
+            self.gdl_btn.setText("Download it\u2026")
+        else:
+            self.gdl_status.setText(f"{ge.version(exe) or 'unknown version'} \u00b7 {exe}")
+            self.gdl_btn.setText("Check for an update")
+        self.gdl_status.setToolTip(str(exe or ""))
+
     def show_update(self, info):
         if info["newer"]:
             self.update_note.setText(f"Media Toolbox {info['version']} is available.")
@@ -316,6 +337,7 @@ class SettingsPage(Page):
 
     def shown(self):
         self.refresh_engine()
+        self.refresh_gdl()
         self._refresh_sizes()
         threading.Thread(target=self._detect_gpu, daemon=True).start()
 

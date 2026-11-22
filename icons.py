@@ -168,6 +168,27 @@ def _draw(name, colour, size):
     elif name == "copy":
         box(8.5, 8.5, 20, 20, 2)
         line((15.5, 5.5), (15.5, 5), (14.5, 4), (5, 4), (4, 5), (4, 14.5), (5, 15.5), (5.5, 15.5))
+    elif name == "download":     # arrow into a tray
+        line((12, 3.5), (12, 14.5))
+        line((7.5, 10), (12, 14.5), (16.5, 10))
+        line((4, 15), (4, 19.5), (20, 19.5), (20, 15))
+    elif name == "bookmark":
+        line((6.5, 4), (17.5, 4), (17.5, 20), (12, 15.5), (6.5, 20), (6.5, 4))
+    elif name == "save":         # a floppy disk
+        box(4, 4, 20, 20, 2)
+        line((8, 4), (8, 9), (15, 9), (15, 4))
+        box(7.5, 13, 16.5, 20, 1)
+    elif name == "plus":
+        line((12, 5), (12, 19))
+        line((5, 12), (19, 12))
+    elif name == "history":      # a clock with a back arrow
+        d.arc([4 * k, 4 * k, 20 * k, 20 * k], 200, 520, fill=colour, width=w)
+        line((4.2, 8.5), (5, 11.3), (7.8, 10.4))
+        line((12, 8), (12, 12), (15, 14))
+    elif name == "trash":
+        line((4, 7), (20, 7))
+        line((9.5, 7), (9.5, 4.5), (14.5, 4.5), (14.5, 7))
+        line((6, 7), (7, 20), (17, 20), (18, 7))
     elif name == "win_min":
         line((7, 12), (17, 12))
     elif name == "win_max":

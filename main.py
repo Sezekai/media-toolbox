@@ -27,6 +27,7 @@ import theme
 import version
 from app_pages import LookPage, SettingsPage
 from cover_page import CoverPage
+from downloads_page import DownloadsPage
 from duplicates_page import DuplicatesPage
 from gif_page import GifPage
 from shell import MainWindow
@@ -43,6 +44,7 @@ TOOLS = [
     ("webp", "WebP to JPG", "WebP", "image", WebpPage),
     ("zip", "Zip subfolders", "Zip", "zip", ZipPage),
     ("copy", "Copy folder structure", "Structure", "copy_folder", CopyPage),
+    ("gdl", "Downloads", "Download", "download", DownloadsPage),
 ]
 BOTTOM = [
     ("look", "Look", "look", LookPage),
