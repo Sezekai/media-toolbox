@@ -79,6 +79,15 @@ def restart(app):
     server = getattr(app, "instance_server", None)
     if server is not None:
         server.close()  # so the new copy doesn't hand over to this one
-    QProcess.startDetached(sys.executable, [])
+    import procenv
+    from PySide6.QtCore import QProcessEnvironment
+    env = QProcessEnvironment()
+    for key, value in procenv.clean().items():
+        env.insert(key, value)
+    proc = QProcess()
+    proc.setProgram(sys.executable)
+    proc.setArguments([])
+    proc.setProcessEnvironment(env)  # the new copy unpacks for itself instead of reusing this one's folder
+    proc.startDetached()
     app.close()
     QApplication.quit()

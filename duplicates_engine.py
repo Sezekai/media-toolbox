@@ -107,7 +107,8 @@ def prepare_ffmpeg(log):
 
 def engine_env():
     """The engine finds FFmpeg on PATH: put the FFmpeg place first."""
-    env = dict(os.environ)
+    import procenv
+    env = procenv.clean()
     env["PATH"] = str(paths.BY_KEY["ffmpeg"].path()) + os.pathsep + env.get("PATH", "")
     return env
 

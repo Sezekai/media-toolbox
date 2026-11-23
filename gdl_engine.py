@@ -37,6 +37,7 @@ import fileops
 import jobs
 import net
 import paths
+import procenv
 import settings
 
 REPO = "mikf/gallery-dl"
@@ -81,7 +82,7 @@ def version(exe=None):
     if key not in _version_cache:
         try:
             out = subprocess.run([str(exe), "--version"], capture_output=True, text=True, timeout=30,
-                                 creationflags=_NO_WINDOW)
+                                 creationflags=_NO_WINDOW, env=procenv.clean())
             _version_cache[key] = (out.stdout or out.stderr).strip().splitlines()[0]
         except Exception:
             _version_cache[key] = None
@@ -363,7 +364,7 @@ class Runner:
         self.errors = []
 
     def run(self):
-        env = os.environ.copy()
+        env = procenv.clean()
         env["PYTHONIOENCODING"] = "utf-8"
         self.proc = subprocess.Popen(self.cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                      stdin=subprocess.DEVNULL, creationflags=_NO_WINDOW, env=env)

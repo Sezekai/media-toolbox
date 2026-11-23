@@ -206,3 +206,9 @@ def test_bookmarks_run_end_to_end(places, tmp_path, monkeypatch):
         assert "last download" in rep.stop_reason
     finally:
         server.shutdown()
+
+
+def test_started_programs_unpack_for_themselves():
+    import procenv
+    env = procenv.clean({"PATH": "x", "_PYI_ARCHIVE_FILE": "a", "_PYI_APPLICATION_HOME_DIR": "b", "_MEIPASS2": "c"})
+    assert env == {"PATH": "x", "PYINSTALLER_RESET_ENVIRONMENT": "1"}
