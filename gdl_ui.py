@@ -32,7 +32,7 @@ def setup(app):
     choice = dialogs.choose(
         "Set up gallery-dl",
         "The Downloads tool runs gallery-dl, a free program (GPL) by mikf. Use the gallery-dl.exe you already "
-        "have, or download the newest official one from GitHub.",
+        "have, or download the newest official one from Codeberg.",
         [("own", "Use my gallery-dl.exe…", "secondary"), ("download", "Download it…", "primary")])
     if choice == "own":
         pick_own(app)
@@ -74,7 +74,7 @@ def _suggest_folders(exe_dir):
 def install(app, update=False):
     app.start(jobs.Job("Looking up gallery-dl", lambda log, progress: {"summary": "", "info": ge.lookup(log, progress)},
                        short="Looking up", done=lambda job: _ask(app, job, update),
-                       failed=lambda job: dialogs.error("Couldn't reach GitHub", f"gallery-dl's release list "
+                       failed=lambda job: dialogs.error("Couldn't reach Codeberg", f"gallery-dl's release list "
                                                         f"couldn't be read: {job.error}. Check the internet "
                                                         "connection and try again.")))
 
@@ -90,7 +90,7 @@ def _ask(app, job, update):
     size = fileops.human_size(info["size"]) if info["size"] else "size not known"
     own = settings.load().get("gdl_exe")
     title = f"Update gallery-dl to {info['tag']}?" if have else "Download gallery-dl?"
-    text = (f"gallery-dl.exe {info['tag']} ({size}) from github.com/mikf/gallery-dl goes into the folder below. "
+    text = (f"gallery-dl.exe {info['tag']} ({size}) from codeberg.org/mikf/gallery-dl goes into the folder below. "
             "It's a free program (GPL) that this app runs to download. It isn't part of the app.")
     note = (f"Your own copy ({own}) stays as it is; the app switches to this one." if own else None)
     if not dialogs.ask(title, text, f"Download {size}", items=[(info["dest"], "destination")], note=note,

@@ -1,6 +1,6 @@
 """gallery-dl: finding or downloading it, building its commands, and running a download in two steps.
 
-gallery-dl (github.com/mikf/gallery-dl, GPL-2.0) is a separate program. It isn't bundled: the app uses the
+gallery-dl (codeberg.org/mikf/gallery-dl, GPL-2.0; it moved there from GitHub) is a separate program. It isn't bundled: the app uses the
 gallery-dl.exe you already have, or downloads the official one after asking (STANDARDS.md).
 
 How a run works
@@ -39,7 +39,8 @@ import paths
 import settings
 
 REPO = "mikf/gallery-dl"
-RELEASES_API = f"https://api.github.com/repos/{REPO}/releases/latest"
+HOME = f"https://codeberg.org/{REPO}"
+RELEASES_API = f"https://codeberg.org/api/v1/repos/{REPO}/releases/latest"
 EXE_NAME = "gallery-dl.exe" if sys.platform == "win32" else "gallery-dl"
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 MARK = "@MT@"                          # starts every line the app asks gallery-dl to print
@@ -89,14 +90,15 @@ def version(exe=None):
 def lookup(log=print, progress=None):
     """What would be downloaded: {"tag", "name", "size", "url", "dest"}. Nothing is downloaded yet."""
     if progress:
-        progress(0, 0, "Asking GitHub for the newest gallery-dl")
+        progress(0, 0, "Asking Codeberg for the newest gallery-dl")
     request = urllib.request.Request(RELEASES_API, headers={"User-Agent": "MediaToolbox",
-                                                            "Accept": "application/vnd.github+json"})
+                                                            "Accept": "application/json"})
     with urllib.request.urlopen(request, timeout=30) as response:
         release = json.load(response)
     asset = next((a for a in release.get("assets", []) if a["name"].lower() == "gallery-dl.exe"), None)
     if asset is None:
-        raise GdlError("The newest gallery-dl release has no gallery-dl.exe.")
+        raise GdlError(f"The newest gallery-dl release ({release.get('tag_name', '?')}) on Codeberg has no "
+                       "gallery-dl.exe. Try again later, or choose your own copy in Settings.")
     info = {"tag": release.get("tag_name", ""), "name": asset["name"], "size": int(asset.get("size") or 0),
             "url": asset["browser_download_url"], "dest": str(install_dir())}
     log(f"Newest gallery-dl: {info['tag']} ({info['size'] / 1048576:.1f} MB).")
