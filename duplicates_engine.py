@@ -21,6 +21,7 @@ from pathlib import Path
 import fileops
 import jobs
 import movelog
+import net
 import paths
 import settings
 
@@ -116,7 +117,7 @@ def download(url, dest, log, progress, label):
     """Download with progress in bytes (the status bar shows MB and MB/s). Writes to a .part file first."""
     request = urllib.request.Request(url, headers={"User-Agent": "MediaToolbox"})
     part = Path(str(dest) + ".part")
-    with urllib.request.urlopen(request, timeout=60) as response, open(part, "wb") as out:
+    with net.urlopen(request, timeout=60) as response, open(part, "wb") as out:
         total = int(response.headers.get("Content-Length") or 0)
         done = 0
         progress(0, total, f"Downloading {label}", size=True)
@@ -135,7 +136,7 @@ def latest_release():
     """Tag name and asset list of the newest engine release."""
     request = urllib.request.Request(RELEASES_API, headers={"User-Agent": "MediaToolbox",
                                                             "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with net.urlopen(request, timeout=30) as response:
         data = json.load(response)
     return data.get("tag_name", ""), data.get("assets", [])
 
@@ -203,7 +204,7 @@ def lookup_ffmpeg(log=print, progress=None):
     request = urllib.request.Request(FFMPEG_URL, method="HEAD", headers={"User-Agent": "MediaToolbox"})
     size = 0
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with net.urlopen(request, timeout=30) as response:
             size = int(response.headers.get("Content-Length") or 0)
     except Exception:
         pass

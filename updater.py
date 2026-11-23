@@ -14,6 +14,7 @@ import zipfile
 from pathlib import Path
 
 import fileops
+import net
 import paths
 import settings
 from version import __version__
@@ -40,7 +41,7 @@ def latest(log=print, progress=None):
     if progress:
         progress(0, 0, "Asking GitHub for the newest version")
     req = urllib.request.Request(API, headers={"User-Agent": "MediaToolbox", "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with net.urlopen(req, timeout=30) as resp:
         data = json.load(resp)
     tag = data.get("tag_name", "")
     asset = next((a for a in data.get("assets", []) if a.get("name", "").lower().endswith("-windows.zip")), None)

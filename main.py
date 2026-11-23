@@ -180,6 +180,17 @@ def selftest(out_dir):
             good = res.returncode == 0
             ok &= good
             report.append(f"{tool}: {'OK' if good else 'FAILED'} ({exe})")
+        import net
+        names = [n for n, _c in net.contexts()]
+        good = "certifi" in names and ("Windows" in names or sys.platform != "win32")
+        ok &= good
+        report.append(f"Certificate checks: {'OK' if good else 'FAILED'} ({', '.join(names)})")
+        try:  # can the packaged app read gallery-dl's releases? (reported, not required: Codeberg may be down)
+            import gdl_engine
+            info = gdl_engine.lookup(lambda *_a: None)
+            report.append(f"Codeberg: OK (gallery-dl {info['tag']}, {info['name']})")
+        except Exception as exc:
+            report.append(f"Codeberg: not reached ({exc})")
         window.close()
     except Exception:
         ok = False

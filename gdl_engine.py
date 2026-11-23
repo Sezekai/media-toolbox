@@ -35,6 +35,7 @@ from pathlib import Path
 
 import fileops
 import jobs
+import net
 import paths
 import settings
 
@@ -93,7 +94,7 @@ def lookup(log=print, progress=None):
         progress(0, 0, "Asking Codeberg for the newest gallery-dl")
     request = urllib.request.Request(RELEASES_API, headers={"User-Agent": "MediaToolbox",
                                                             "Accept": "application/json"})
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with net.urlopen(request, timeout=30) as response:
         release = json.load(response)
     asset = next((a for a in release.get("assets", []) if a["name"].lower() == "gallery-dl.exe"), None)
     if asset is None:
