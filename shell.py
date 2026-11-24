@@ -92,7 +92,11 @@ class TitleBar(QFrame):
 
 
 class Pill(QPushButton):
-    """"● Converting 3/12 · 25%": a running job on every screen. Clicking opens the log."""
+    """"● Converting 3/12 ▬▬ 25%": a running job on every screen. Clicking opens the log.
+
+    Every part is measured and drawn here (dot, text, bar, percentage), so they never overlap whatever the
+    font, text size or UI scale."""
+    PAD, DOT, GAP, BAR = 10, 7, 8, 46
 
     def __init__(self, on_click):
         super().__init__()
@@ -102,33 +106,61 @@ class Pill(QPushButton):
         self.clicked.connect(on_click)
         self.share = None
         self.state = "run"
-        self.setMinimumWidth(80)
+        self.label = ""
 
     def set(self, text, share, state="run"):
-        self.share, self.state = share, state
-        self.setText("      " + text + ("" if share is None else f"      {share * 100:.0f}%"))
+        self.label, self.share, self.state = text, share, state
+        self.setToolTip(text + ("" if share is None else f" \u00b7 {share * 100:.0f}%") + "\nClick to open the log")
+        self.updateGeometry()
         self.update()
 
+    def _pct(self):
+        return "" if self.share is None else f"{self.share * 100:.0f}%"
+
+    def sizeHint(self):
+        fm = self.fontMetrics()
+        w = self.PAD + self.DOT + self.GAP + fm.horizontalAdvance(self.label)
+        if self.share is not None:
+            w += self.GAP + self.BAR + self.GAP + fm.horizontalAdvance("100%")
+        return QSize(w + self.PAD + 2, max(22, fm.height() + 6))
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
     def paintEvent(self, event):
-        super().paintEvent(event)
+        super().paintEvent(event)  # the capsule background and border, from the stylesheet
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
+        fm = self.fontMetrics()
+        mid = self.height() // 2
         colour = {"run": theme.ACCENT, "warn": theme.WARN, "paused": theme.SEC}.get(self.state, theme.ACCENT)
-        p.setBrush(QColor(colour))
         p.setPen(Qt.NoPen)
-        p.drawEllipse(10, self.height() // 2 - 3, 7, 7)
+        p.setBrush(QColor(colour))
+        x = self.PAD
+        p.drawEllipse(x, mid - self.DOT // 2, self.DOT, self.DOT)
+        x += self.DOT + self.GAP
+        right = self.width() - self.PAD
         if self.share is not None:
-            fm = self.fontMetrics()
-            pct = f"{self.share * 100:.0f}%"
-            x = self.width() - 10 - fm.horizontalAdvance(pct) - 52
-            r = QRect(x, self.height() // 2 - 2, 46, 4)
+            pct_w = fm.horizontalAdvance("100%")
+            bar_x = right - pct_w - self.GAP - self.BAR
+            text_room = bar_x - self.GAP - x
+        else:
+            text_room = right - x
+        p.setPen(QColor(theme.TEXT if self.underMouse() else theme.SEC))
+        p.drawText(QRect(x, 0, max(0, text_room), self.height()), int(Qt.AlignVCenter | Qt.AlignLeft),
+                   fm.elidedText(self.label, Qt.ElideRight, max(0, text_room)))
+        if self.share is not None:
+            p.setPen(Qt.NoPen)
             p.setBrush(QColor(theme.RAISED2))
-            p.drawRoundedRect(r, 2, 2)
-            p.setBrush(theme.qgradient(46, 4))
+            p.drawRoundedRect(QRect(bar_x, mid - 2, self.BAR, 4), 2, 2)
             p.save()
-            p.translate(x, self.height() // 2 - 2)
-            p.drawRoundedRect(QRect(0, 0, max(2, int(46 * self.share)), 4), 2, 2)
+            p.translate(bar_x, mid - 2)
+            p.setBrush(theme.qgradient(self.BAR, 4))
+            p.drawRoundedRect(QRect(0, 0, max(2, int(self.BAR * self.share)), 4), 2, 2)
             p.restore()
+            p.setPen(QColor(theme.TEXT if self.underMouse() else theme.SEC))
+            p.drawText(QRect(right - pct_w, 0, pct_w, self.height()), int(Qt.AlignVCenter | Qt.AlignRight),
+                       self._pct())
         p.end()
 
 
