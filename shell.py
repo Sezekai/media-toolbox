@@ -240,7 +240,7 @@ class LogoTile(QWidget):
         path = QPainterPath()
         path.addRoundedRect(0, 0, 36, 36, 8, 8)
         p.fillPath(path, theme.qgradient(36, 36))
-        p.drawPixmap(3, 3, icons.pixmap("logo", theme.ON_ACCENT, 30))
+        p.drawPixmap(3, 3, icons.pixmap("logo", "#ffffff", 30))
         p.end()
 
 
@@ -913,6 +913,11 @@ class MainWindow(QMainWindow):
                 return True
         if event.type() == QEvent.KeyPress and self.isActiveWindow():
             return self._key(event)
+        if (event.type() == QEvent.MouseButtonPress and event.button() == Qt.BackButton
+                and isinstance(obj, QWidget) and obj.window() is self):
+            page = self.page()  # the mouse's back button leaves Gallery for the view you came from
+            if page is not None and hasattr(page, "leave_full_view") and page.leave_full_view():
+                return True
         return False
 
     def closeEvent(self, event):
@@ -990,6 +995,12 @@ class MainWindow(QMainWindow):
             return bool(page.fit(key == Qt.Key_1))
         if key == Qt.Key_Space and hasattr(page, "space"):
             return bool(page.space())
+        if key in (Qt.Key_Return, Qt.Key_Enter) and hasattr(page, "enter"):
+            if page.enter():
+                return True
+        if key == Qt.Key_T and hasattr(page, "toggle_gallery"):
+            if page.toggle_gallery():
+                return True
         if in_list:
             return False  # lists move with their own arrow keys
         steps = {Qt.Key_Left: -1, Qt.Key_Right: 1, Qt.Key_PageUp: -1, Qt.Key_PageDown: 1,

@@ -3,8 +3,9 @@
 Only one video plays at a time anywhere in the app. The Gallery player remembers its volume and always starts
 from the beginning. Hover previews are silent and are off in safe mode. If Qt's video support is missing, the
 app shows still pictures instead."""
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer, QUrl
-from PySide6.QtWidgets import QHBoxLayout, QSlider, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, QObject, QRectF, QSizeF, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QBrush, QColor
+from PySide6.QtWidgets import QFrame, QGraphicsScene, QGraphicsView, QHBoxLayout, QSlider, QVBoxLayout, QWidget
 
 import icons
 import settings
@@ -13,7 +14,7 @@ from widgets import button, label
 
 try:
     from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-    from PySide6.QtMultimediaWidgets import QVideoWidget
+    from PySide6.QtMultimediaWidgets import QGraphicsVideoItem
     AVAILABLE = True
 except Exception:  # Qt Multimedia missing or broken on this PC
     AVAILABLE = False
@@ -38,6 +39,54 @@ def _clock(ms):
     return f"{s // 60}:{s % 60:02d}"
 
 
+class VideoSurface(QGraphicsView):
+    """Where a video is drawn. Qt paints it like any other widget (a QVideoWidget gets its own native window on
+    Windows, which covers the shortcuts list and dialogs opened over it). The picture keeps its shape and is
+    centred on black. A click emits clicked."""
+    clicked = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setBackgroundBrush(QBrush(QColor(theme.STAGE)))
+        self.setScene(QGraphicsScene(self))
+        self.item = QGraphicsVideoItem()
+        self.item.setAspectRatioMode(Qt.KeepAspectRatio)
+        self.scene().addItem(self.item)
+        self.item.nativeSizeChanged.connect(lambda _s: self._fit())
+        self.setCursor(Qt.PointingHandCursor)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit()
+
+    def _fit(self):
+        w, h = max(1, self.viewport().width()), max(1, self.viewport().height())
+        self.scene().setSceneRect(QRectF(0, 0, w, h))
+        self.item.setPos(0, 0)
+        self.item.setSize(QSizeF(w, h))
+        self.centerOn(w / 2, h / 2)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+            event.accept()
+            return
+        super().mousePressEvent(event)  # other buttons (like mouse back) go on to the window
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()  # a quick second click toggles again, like a player
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def wheelEvent(self, event):
+        event.ignore()  # never scroll the picture
+
+
 class Player(QWidget):
     """A video with play/pause, a position bar and volume. Nothing is drawn over the picture."""
 
@@ -51,8 +100,10 @@ class Player(QWidget):
             v.addWidget(label("Videos can't play inside the app on this PC. Use Open to play it in your player.",
                               "empty", wrap=True), 1)
             return
-        self.video = QVideoWidget()
+        self.video = VideoSurface()
         self.video.setObjectName("stage")
+        self.video.setToolTip("Click to play or pause")
+        self.video.clicked.connect(self.toggle)
         v.addWidget(self.video, 1)
         self.player = None  # made the first time a video plays, so start-up never waits for audio devices
         controls = QHBoxLayout()
@@ -79,7 +130,7 @@ class Player(QWidget):
             self.audio = QAudioOutput(self)
             self.audio.setVolume(self.vol.value() / 100)
             self.player.setAudioOutput(self.audio)
-            self.player.setVideoOutput(self.video)
+            self.player.setVideoOutput(self.video.item)
             self.pos.sliderMoved.connect(self.player.setPosition)
             self.player.durationChanged.connect(lambda d: self.pos.setRange(0, int(d)))
             self.player.positionChanged.connect(self._position)
@@ -160,10 +211,11 @@ class HoverPreview(QObject):
             return
         try:
             if self.video is None:
-                self.video = QVideoWidget()
+                self.video = VideoSurface()
                 self.video.setAttribute(Qt.WA_TransparentForMouseEvents)
+                self.video.viewport().setAttribute(Qt.WA_TransparentForMouseEvents)
                 self.player = QMediaPlayer(self)
-                self.player.setVideoOutput(self.video)  # no audio output: silent
+                self.player.setVideoOutput(self.video.item)  # no audio output: silent
                 self.player.setLoops(QMediaPlayer.Infinite)
             self.video.setParent(self.target)
             self.video.setGeometry(self.target.rect())

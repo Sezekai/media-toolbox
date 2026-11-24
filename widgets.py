@@ -609,6 +609,16 @@ class Page(QWidget):
     def step(self, delta):
         """← → PgUp PgDn: previous / next item. Home / End: first / last (delta = -inf / inf)."""
 
+    def enter(self):
+        """Enter in a list or grid: open the selected item in Gallery."""
+        coll = getattr(self, "coll", None)
+        return bool(coll is not None and coll.enter())
+
+    def toggle_gallery(self):
+        """T: between Gallery and the list or grid you came from."""
+        coll = getattr(self, "coll", None)
+        return bool(coll is not None and coll.toggle_gallery())
+
 
 # ----- a layout that wraps -----
 class FlowLayout(QLayout):

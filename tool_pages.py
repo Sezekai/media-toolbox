@@ -73,10 +73,11 @@ class SilentPage(ToolPage):
         self.panels.append(bar)
 
         columns = [col.name_column(), col.folder_column(),
-                   col.Column("reason", "Why", 150), col.size_column(), col.status_column()]
+                   col.Column("reason", "Why", 150), col.length_column(), col.size_column(), col.status_column()]
         self.coll = col.Collection(
             "silent", columns, "video", ("silent video", "silent videos"),
             details=lambda i: [("Why", i.get("reason", "")), ("Folder", i["root"]),
+                               ("Length", fileops.clock(i["duration"]) if i.get("duration") is not None else "—"),
                                ("Size", fileops.human_size(i["size"])), ("Status", i.get("detail") or i.get("status")
                                                                           or "Found")],
             gallery_actions=file_actions(self),
@@ -129,8 +130,8 @@ class SilentPage(ToolPage):
                                 done=lambda job: self.refresh_buttons()))
 
     def _scan_job(self, roots, recursive, loud, threshold, log, progress):
-        def found(path, root, reason):
-            item = col.make_item(path, root, reason=reason)
+        def found(path, root, reason, duration=None):
+            item = col.make_item(path, root, reason=reason, duration=duration)
             self.app.on_main(lambda: self.coll.add_items([item]))
 
         silent = silent_videos.scan(roots, recursive, loud, threshold, log, progress, found)

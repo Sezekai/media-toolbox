@@ -230,6 +230,8 @@ def stylesheet():
     QLabel#drophint {{ background: {mix(GROUND, HIGHLIGHT, 0.14)}; border: 2px dashed {OUTLINE};
         border-radius: {rp}px; color: {TEXT}; font-size: {text_px("title") + 2}px; font-weight: 600; }}
     QFrame#setrow {{ background: {PANEL}; border: 1px solid {LINE}; border-radius: {rc + 2}px; }}
+    QFrame#filterbar {{ background: {RAISED}; border: 1px solid {LINE}; border-radius: {rp}px; }}
+    QPushButton[active="true"], QPushButton[kind="ghost"][active="true"] {{ color: {ACCENT}; border: 1px solid {ACCENT}; }}
     QFrame#keyrow {{ border-bottom: 1px solid {mix(PANEL, LINE, 0.6)}; border-radius: 0px; }}
     QFrame#keyrow[alt="true"] {{ background: {mix(PANEL, RAISED, 0.7)}; }}
     QLabel#keycap {{ background: {RAISED}; border: 1px solid {LINE2}; border-radius: 4px; padding: 1px 6px;

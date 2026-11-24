@@ -7,11 +7,26 @@ import movelog
 from media_utils import find_videos, noop, run
 
 
+def probe(path):
+    """(has an audio stream, length in seconds or None), from one ffprobe call."""
+    result = run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type:format=duration",
+                  "-of", "default=noprint_wrappers=1", str(path)])
+    audio, duration = False, None
+    for line in (result.stdout or "").splitlines():
+        key, _, value = line.strip().partition("=")
+        if key == "codec_type" and value == "audio":
+            audio = True
+        elif key == "duration":
+            try:
+                duration = float(value)
+            except ValueError:
+                pass
+    return audio, duration
+
+
 def has_audio_stream(path):
     """True if the file contains at least one audio stream."""
-    result = run(["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index",
-                  "-of", "csv=p=0", str(path)])
-    return bool((result.stdout or "").strip())
+    return probe(path)[0]
 
 
 def max_volume_db(path):
@@ -24,21 +39,22 @@ def max_volume_db(path):
 
 
 def check_video(path, check_loudness, threshold_db):
-    """(silent, reason) for one video. Raises if it can't be read."""
-    if not has_audio_stream(path):
-        return True, "No audio track"
+    """(silent, reason, length in seconds or None) for one video. Raises if it can't be read."""
+    audio, duration = probe(path)
+    if not audio:
+        return True, "No audio track", duration
     if check_loudness:
         peak = max_volume_db(path)
         if peak is None:
-            return False, "Couldn't measure the sound"
+            return False, "Couldn't measure the sound", duration
         if peak <= threshold_db:
-            return True, "Silent audio" if peak == float("-inf") else f"Very quiet ({peak:.1f} dB peak)"
-    return False, "Has sound"
+            return True, ("Silent audio" if peak == float("-inf") else f"Very quiet ({peak:.1f} dB peak)"), duration
+    return False, "Has sound", duration
 
 
 def scan(folders, recursive, check_loudness, threshold_db, log=print, progress=None, found=None):
-    """Check every video in the folders. found(path, root, reason) is called for each silent one as soon as
-    it's found. Returns [(path, root, reason)]."""
+    """Check every video in the folders. found(path, root, reason, duration) is called for each silent one as
+    soon as it's found. Returns [(path, root, reason)]."""
     progress = progress or noop
     videos = []
     for root in folders:
@@ -50,7 +66,7 @@ def scan(folders, recursive, check_loudness, threshold_db, log=print, progress=N
     for i, (path, root) in enumerate(videos, 1):
         progress(i - 1, total, f"Checking {path.name}")
         try:
-            is_silent, reason = check_video(path, check_loudness, threshold_db)
+            is_silent, reason, duration = check_video(path, check_loudness, threshold_db)
         except Exception as exc:  # one unreadable file shouldn't stop the whole scan
             if exc.__class__.__name__ == "JobStopped":
                 raise
@@ -60,7 +76,7 @@ def scan(folders, recursive, check_loudness, threshold_db, log=print, progress=N
             silent.append((path, root, reason))
             log(f"[{i}/{total}] {reason.lower()}: {path.name}")
             if found:
-                found(path, root, reason)
+                found(path, root, reason, duration)
     progress(total, total, "Checked")
     return silent
 

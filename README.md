@@ -6,7 +6,7 @@ Small, everyday tools for your own videos and pictures, in one portable Windows 
 
 | Tool | What it's for |
 |---|---|
-| **Silent videos** | Finds videos with no sound (or, if you like, very quiet ones) in one or more folders, then moves the ones you tick to another folder. Every move can be undone. |
+| **Silent videos** | Finds videos with no sound (or, if you like, very quiet ones) in one or more folders, then moves the ones you tick to another folder. Every move can be undone. Shows each video's length (sort by it too) and has filters: rules like *Length shorter than 10 seconds* or *Size smaller than 5 MB*, matching all or any of them. **Tick all N** ticks everything you're looking at. Enter opens Gallery, T or the mouse's back button returns, and clicking the video plays or pauses it. |
 | **GIF maker** | Turns videos into GIFs. Each video can have its own timeframe, frame rate, width and file name; tick several to set them together. "Match each video" keeps every video's own frame rate and width. |
 | **Video thumbnails** | Chooses the picture File Explorer shows for a video: any frame from it, or any picture. Pick one per video, or for every ticked video at once (for example the frame 30% of the way in), then set them all. The video and sound are copied, not re-encoded, and each original goes to the Recycle Bin. MP4 and M4V show in File Explorer; MKV needs a thumbnail add-on such as Icaros. |
 | **Make stills** | Takes two pictures from each video, one a second in and one from the middle, named `video - start.jpg` and `video - middle.jpg`, to search in Google Lens. The names match Lens Library's Import. Videos that already have both stills are skipped. |

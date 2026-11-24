@@ -10,7 +10,7 @@ from PIL import Image, ImageDraw
 import math
 
 STOPS = [(0xff, 0xb3, 0x47), (0xff, 0x6a, 0x88), (0xb4, 0x7c, 0xff)]  # Sunset: amber, pink, violet
-INK = (0x0b, 0x0c, 0x0f)
+INK = (0xff, 0xff, 0xff)  # the gear and play are white on the gradient
 SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
 
 

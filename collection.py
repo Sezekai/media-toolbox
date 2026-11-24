@@ -4,8 +4,12 @@ tree with counts, sorting, a size slider, and the suite's selecting and ticking.
 - A click selects (accent outline). Ctrl+click or the tick box ticks; Shift ticks a range. Ticked items get a
   faint accent tint. With the "click ticks" option a plain click ticks.
 - Actions use the ticked items, or the selected one when nothing is ticked.
-- Double-click opens Gallery: one item, nothing drawn over it, with a 300 px side panel.
+- Double-click or Enter opens Gallery: one item, nothing drawn over it, with a 300 px side panel. T goes back and
+  forth between Gallery and the view you came from; so does the mouse's back button.
+- Filters narrow what's shown: rules like "Size smaller than 5 MB" or "Length shorter than 10 seconds", all of
+  which (or any of which) must match. They're remembered per screen.
 """
+import time
 import os
 from pathlib import Path
 
@@ -13,7 +17,7 @@ from PySide6.QtCore import (QAbstractTableModel, QEvent, QItemSelectionModel, QM
                             QSortFilterProxyModel, Qt, Signal)
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout,
-                               QHeaderView, QLabel, QListView, QPushButton, QScrollArea, QSlider, QSplitter,
+                               QHeaderView, QLabel, QLineEdit, QListView, QPushButton, QScrollArea, QSlider, QSplitter,
                                QStackedWidget, QStyle, QStyledItemDelegate, QTableView, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
@@ -56,6 +60,12 @@ def size_column():
 def folder_column():
     return Column("folder", "Folder", 180, text=lambda i: i.get("rel_folder", ""),
                   sort=lambda i: i.get("rel_folder", "").lower())
+
+
+def length_column():
+    return Column("duration", "Length", 64,
+                  text=lambda i: fileops.clock(i["duration"]) if i.get("duration") is not None else "",
+                  sort=lambda i: i["duration"] if i.get("duration") is not None else -1, align=Qt.AlignRight)
 
 
 def status_column():
@@ -194,6 +204,8 @@ class Proxy(QSortFilterProxyModel):
         self.setSortRole(SORT)
         self.folder = None  # (root, relative folder or None)
         self.text = ""
+        self.rules = []     # filter rules that are complete (see Rule)
+        self.match_any = False
 
     def set_folder(self, folder):
         self.folder = folder
@@ -213,7 +225,15 @@ class Proxy(QSortFilterProxyModel):
                 return False
         if self.text and self.text not in item["name"].lower():
             return False
+        if self.rules:
+            results = (rule.test(item) for rule in self.rules)
+            return any(results) if self.match_any else all(results)
         return True
+
+    def set_rules(self, rules, match_any):
+        self.rules = [r for r in rules if r.complete()]
+        self.match_any = match_any
+        self.invalidateFilter()
 
     def lessThan(self, a, b):
         x, y = a.data(SORT), b.data(SORT)
@@ -221,6 +241,194 @@ class Proxy(QSortFilterProxyModel):
             return x < y
         except TypeError:
             return str(x) < str(y)
+
+
+# ----- filters -----
+SIZE_UNITS = [("KB", 1024), ("MB", 1024 ** 2), ("GB", 1024 ** 3)]
+TIME_UNITS = [("seconds", 1), ("minutes", 60), ("hours", 3600)]
+AGE_UNITS = [("days", 86400), ("weeks", 604800), ("months", 2629800), ("years", 31557600)]
+OPS = {"text": [("has", "contains"), ("not", "doesn't contain"), ("is", "is")],
+       "size": [("lt", "smaller than"), ("gt", "bigger than")],
+       "time": [("lt", "shorter than"), ("gt", "longer than")],
+       "age": [("lt", "newer than"), ("gt", "older than")]}
+UNITS = {"size": SIZE_UNITS, "time": TIME_UNITS, "age": AGE_UNITS, "text": []}
+
+
+class Rule:
+    """One filter rule: field, how to compare, a value and its unit. Incomplete rules (no value yet) are
+    ignored, so a half-typed rule never empties the view."""
+
+    def __init__(self, coll, field, op=None, value="", unit=None):
+        self.coll, self.field = coll, field
+        kind = coll.filter_fields[field][1]
+        self.op = op or OPS[kind][0][0]
+        self.value = value
+        self.unit = unit or (UNITS[kind][1][0] if kind == "size" else UNITS[kind][0][0] if UNITS[kind] else "")
+
+    @property
+    def kind(self):
+        return self.coll.filter_fields[self.field][1]
+
+    def number(self):
+        try:
+            n = float(str(self.value).replace(",", ".").strip())
+        except ValueError:
+            return None
+        return n * dict(UNITS[self.kind]).get(self.unit, 1)
+
+    def complete(self):
+        if self.kind == "text":
+            return bool(str(self.value).strip())
+        return self.number() is not None
+
+    def test(self, item):
+        kind = self.kind
+        if kind == "text":
+            have = self.coll.filter_fields[self.field][2](item).lower()
+            want = str(self.value).strip().lower()
+            return {"has": want in have, "not": want not in have, "is": have == want}[self.op]
+        limit = self.number()
+        if kind == "age":
+            mtime = item.get("mtime") or 0
+            if not mtime:
+                return False
+            value = time.time() - mtime
+        else:
+            value = item.get("size" if kind == "size" else "duration")
+            if value is None:
+                return False  # a length that isn't known yet doesn't match either way
+        return value < limit if self.op == "lt" else value > limit
+
+    def to_dict(self):
+        return {"field": self.field, "op": self.op, "value": self.value, "unit": self.unit}
+
+
+class RuleRow(QWidget):
+    changed = Signal()
+    removed = Signal(object)
+
+    def __init__(self, coll, rule):
+        super().__init__()
+        self.coll, self.rule = coll, rule
+        h = QHBoxLayout(self)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(6)
+        self.field = QComboBox()
+        for key, (title, _kind, _get) in coll.filter_fields.items():
+            self.field.addItem(title, key)
+        self.op = QComboBox()
+        self.value = QLineEdit()
+        self.value.setFixedWidth(110)
+        self.unit = QComboBox()
+        rm = button("", "ghost", icons.icon("x", theme.SEC, 14), tip="Remove this rule")
+        rm.setFixedWidth(30)
+        rm.clicked.connect(lambda: self.removed.emit(self))
+        for w in (self.field, self.op, self.value, self.unit):
+            h.addWidget(w)
+        h.addWidget(rm)
+        h.addStretch(1)
+        self._fill()
+        self.field.currentIndexChanged.connect(self._field_changed)
+        self.op.currentIndexChanged.connect(self._edited)
+        self.unit.currentIndexChanged.connect(self._edited)
+        self.value.textChanged.connect(self._edited)
+
+    def _fill(self):
+        r = self.rule
+        for w in (self.field, self.op, self.unit, self.value):
+            w.blockSignals(True)
+        self.field.setCurrentIndex(max(0, self.field.findData(r.field)))
+        self.op.clear()
+        for key, text in OPS[r.kind]:
+            self.op.addItem(text, key)
+        self.op.setCurrentIndex(max(0, self.op.findData(r.op)))
+        self.unit.clear()
+        for key, _mult in UNITS[r.kind]:
+            self.unit.addItem(key, key)
+        self.unit.setCurrentIndex(max(0, self.unit.findData(r.unit)))
+        self.unit.setVisible(r.kind != "text")
+        self.value.setText(str(r.value))
+        self.value.setPlaceholderText({"text": "text", "size": "e.g. 5", "time": "e.g. 10",
+                                       "age": "e.g. 7"}[r.kind])
+        for w in (self.field, self.op, self.unit, self.value):
+            w.blockSignals(False)
+
+    def _field_changed(self, _i):
+        old_kind = self.rule.kind
+        self.rule.field = self.field.currentData()
+        if self.rule.kind != old_kind:
+            fresh = Rule(self.coll, self.rule.field)
+            self.rule.op, self.rule.unit, self.rule.value = fresh.op, fresh.unit, ""
+            self._fill()
+        self.changed.emit()
+
+    def _edited(self, *_a):
+        self.rule.op = self.op.currentData()
+        self.rule.unit = self.unit.currentData() or ""
+        self.rule.value = self.value.text()
+        self.changed.emit()
+
+
+class FilterBar(QFrame):
+    """"Show videos that match [all | any] of these:" and the rules, each on its own row."""
+
+    def __init__(self, coll):
+        super().__init__()
+        self.coll = coll
+        self.setObjectName("filterbar")
+        v = QVBoxLayout(self)
+        v.setContentsMargins(theme.PAD - 4, 8, theme.PAD - 4, 8)
+        v.setSpacing(6)
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        top.addWidget(label(f"Show {coll.noun[1]} that match", "muted"))
+        self.match = Segmented([("all", "all"), ("any", "any")], "all")
+        self.match.changed.connect(lambda _v: coll.apply_filters())
+        top.addWidget(self.match)
+        top.addWidget(label("of these rules", "muted"))
+        top.addStretch(1)
+        add = button("Add a rule", icon=icons.icon("plus", theme.TEXT, 14))
+        add.clicked.connect(lambda: self.add_rule())
+        self.clear_btn = button("Clear all", "ghost")
+        self.clear_btn.clicked.connect(self.clear)
+        top.addWidget(add)
+        top.addWidget(self.clear_btn)
+        v.addLayout(top)
+        self.rows = QVBoxLayout()
+        self.rows.setSpacing(6)
+        v.addLayout(self.rows)
+
+    def rules(self):
+        return [self.rows.itemAt(i).widget().rule for i in range(self.rows.count())]
+
+    def add_rule(self, rule=None, apply=True):
+        if rule is None:
+            fields = self.coll.filter_fields
+            if "duration" in fields:
+                rule = Rule(self.coll, "duration", "lt", "", "seconds")
+            else:
+                rule = Rule(self.coll, "size", "lt", "", "MB")
+        row = RuleRow(self.coll, rule)
+        row.changed.connect(self.coll.apply_filters)
+        row.removed.connect(self._remove)
+        self.rows.addWidget(row)
+        if apply:
+            row.value.setFocus()
+            self.coll.apply_filters()
+        return row
+
+    def _remove(self, row):
+        self.rows.removeWidget(row)
+        row.hide()
+        row.deleteLater()
+        self.coll.apply_filters()
+
+    def clear(self):
+        while self.rows.count():
+            w = self.rows.takeAt(0).widget()
+            w.hide()
+            w.deleteLater()
+        self.coll.apply_filters()
 
 
 # ----- the folder tree -----
@@ -528,8 +736,8 @@ class Gallery(QWidget):
         back = button("Back to the list", "ghost", tip="Esc")
         back.clicked.connect(self.coll.leave_full_view)
         v.addWidget(back)
-        v.addWidget(label("← → move · Space ticks · 0 fit · 1 actual size · Esc back",
-                          "caption", wrap=True))
+        v.addWidget(label("← → move · Space ticks · click the video to pause · 0 fit · 1 actual size · "
+                          "T, Esc or the mouse's back button: back", "caption", wrap=True))
         side_scroll = QScrollArea()  # a short window scrolls the panel instead of cutting its buttons off
         side_scroll.setWidgetResizable(True)
         side_scroll.setFrameShape(QFrame.NoFrame)
@@ -614,12 +822,27 @@ class Collection(QWidget):
         self.details = details or (lambda item: [("Folder", item["root"] + ("/" + item["rel_folder"]
                                                                            if item["rel_folder"] else "")),
                                                  ("Size", fileops.human_size(item["size"]))])
-        self.subline = subline or (lambda item: fileops.human_size(item["size"]) if item.get("size") else "")
+        self.subline = subline or (lambda item: " \u00b7 ".join(
+            part for part in (fileops.clock(item["duration"]) if item.get("duration") is not None else "",
+                              fileops.human_size(item["size"]) if item.get("size") else "") if part))
         self.gallery_actions = list(gallery_actions)
         self.anchor = None
         self.thumbs = thumbs.shared()
         saved = settings.load().get("views", {}).get(key, {})
         self.grid_size = max(GRID_MIN, min(GRID_MAX, int(saved.get("size", 180))))
+        # what filters can look at: name, folder, size, length (when there's a Length column), modified date,
+        # and any other column's text
+        keys = [c.key for c in columns]
+        self.filter_fields = {"name": ("Name", "text", lambda i: i["name"]),
+                              "folder": ("Folder", "text", lambda i: str(Path(i["root"]) / i["rel_folder"])
+                                         if i.get("rel_folder") else i["root"]),
+                              "size": ("Size", "size", None)}
+        if "duration" in keys:
+            self.filter_fields["duration"] = ("Length", "time", None)
+        self.filter_fields["mtime"] = ("Modified", "age", None)
+        for c in columns:
+            if c.key not in ("name", "folder", "size", "duration", "status") and c.key not in self.filter_fields:
+                self.filter_fields[c.key] = (c.title, "text", c.text)
         self.model = Model(columns)
         self.model.ticks_changed.connect(self._ticks)
         self.proxy = Proxy()
@@ -656,15 +879,25 @@ class Collection(QWidget):
         for k, ic in (("list", "list"), ("grid", "grid"), ("gallery", "gallery")):
             self.views.buttons[k].setIcon(icons.icon(ic, theme.SEC, 14))
         self.views.changed.connect(self.set_view)
+        self.tick_btn = button("Tick all shown", "ghost", icons.icon("tick_all", theme.SEC, 16),
+                               tip="Tick every item in the current view: this folder, with the filters (Ctrl+A)")
+        self.tick_btn.clicked.connect(lambda: self.tick_all())
+        self.filter_btn = button("Filter", "ghost", icons.icon("filter", theme.SEC, 16),
+                                 tip="Show only items that match rules like size or length")
+        self.filter_btn.setCheckable(True)
+        self.filter_btn.toggled.connect(self._filters_toggled)
         bar = QHBoxLayout()
         bar.setSpacing(theme.GAP - 2)
         bar.addWidget(self.summary, 1)
         self.extra = QHBoxLayout()
         self.extra.setSpacing(theme.GAP - 2)
         bar.addLayout(self.extra)
-        for w in (self.sort_box, self.sort_dir, self.size_slider, self.views):
+        for w in (self.tick_btn, self.filter_btn, self.sort_box, self.sort_dir, self.size_slider, self.views):
             bar.addWidget(w)
         outer.addLayout(bar)
+        self.filter_bar = FilterBar(self)
+        self.filter_bar.hide()
+        outer.addWidget(self.filter_bar)
 
         # the views
         self.stack = QStackedWidget()
@@ -746,9 +979,24 @@ class Collection(QWidget):
         self._last_view = self.views.value() if self.views.value() != "gallery" else "list"
         sort_saved = saved.get("sort")
         if sort_saved is not None and 0 <= sort_saved[0] < len(columns):
-            self.sort_box.setCurrentIndex(sort_saved[0])
+            index = sort_saved[0]
+            by_key = [n for n, c in enumerate(columns) if c.key == saved.get("sort_key")]
+            if by_key:
+                index = by_key[0]  # by name, so adding a column never changes what you sorted by
+            self.sort_box.setCurrentIndex(index)
             self.sort_dir.setChecked(bool(sort_saved[1]))
         self._sort()
+        self._loading_filters = True
+        fsaved = saved.get("filters") or {}
+        for r in fsaved.get("rules", []):
+            if r.get("field") in self.filter_fields:
+                self.filter_bar.add_rule(Rule(self, r["field"], r.get("op"), r.get("value", ""), r.get("unit")),
+                                         apply=False)
+        self.filter_bar.match.set_value("any" if fsaved.get("any") else "all")
+        self._loading_filters = False
+        self.apply_filters(save=False)
+        if fsaved.get("open") and fsaved.get("rules"):
+            self.filter_btn.setChecked(True)
         self.set_view(self.views.value(), save=False)
         self._count()
 
@@ -883,6 +1131,51 @@ class Collection(QWidget):
         else:
             self.stack.setCurrentWidget(self.table)
 
+    def enter(self):
+        """Enter: open the selected item in Gallery (from List or Grid)."""
+        if self.views.value() == "gallery" or not self.proxy.rowCount():
+            return False
+        index = self.selection.currentIndex()
+        if not index.isValid():
+            index = self.proxy.index(0, 0)
+        self.open_gallery(index)
+        return True
+
+    def toggle_gallery(self):
+        """T: Gallery, and back to the List or Grid you came from."""
+        if self.views.value() == "gallery":
+            return self.leave_full_view()
+        if not self.model.items:
+            return False
+        return self.enter()
+
+    # ----- filters -----
+    def _filters_toggled(self, on):
+        self.filter_bar.setVisible(on)
+        if on and not self.filter_bar.rules():
+            self.filter_bar.add_rule()
+        self._save_view()
+
+    def apply_filters(self, save=True):
+        if getattr(self, "_loading_filters", False):
+            return
+        rules = self.filter_bar.rules()
+        match_any = self.filter_bar.match.value() == "any"
+        self.proxy.set_rules(rules, match_any)
+        active = len(self.proxy.rules)
+        self.filter_btn.setText(f"Filter \u00b7 {active}" if active else "Filter")
+        self.filter_btn.setProperty("active", bool(active))
+        repolish(self.filter_btn)
+        self._count()
+        if self.views.value() == "gallery":
+            current = self.selection.currentIndex()
+            if not current.isValid() and self.proxy.rowCount():
+                self.selection.setCurrentIndex(self.proxy.index(0, 0), QItemSelectionModel.ClearAndSelect
+                                               | QItemSelectionModel.Rows)
+            self._show_gallery_item()
+        if save:
+            self._save_view()
+
     def open_gallery(self, index):
         self.selection.setCurrentIndex(index, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
         self.set_view("gallery")
@@ -954,7 +1247,13 @@ class Collection(QWidget):
         views = dict(settings.load().get("views", {}))
         views[self.key] = {"view": self.views.value() if self.views.value() != "gallery" else self._last_view,
                            "size": self.grid_size,
-                           "sort": [self.sort_box.currentIndex(), int(self.sort_dir.isChecked())]}
+                           "sort": [self.sort_box.currentIndex(), int(self.sort_dir.isChecked())],
+                           "sort_key": self.model.columns[self.sort_box.currentIndex()].key
+                           if 0 <= self.sort_box.currentIndex() < len(self.model.columns) else ""}
+        if hasattr(self, "filter_bar"):
+            views[self.key]["filters"] = {"rules": [r.to_dict() for r in self.filter_bar.rules()],
+                                          "any": self.filter_bar.match.value() == "any",
+                                          "open": self.filter_btn.isChecked()}
         settings.save({"views": views})
 
     # ----- sorting -----
@@ -1016,10 +1315,20 @@ class Collection(QWidget):
             hidden = ticked - sum(1 for i in self.shown() if i["ticked"])
             text += f" · {ticked} ticked" + (f" ({hidden} not shown)" if hidden else "")
         self.summary.setText(text if total else "")
+        if hasattr(self, "tick_btn"):
+            shown_items = self.shown() if shown else []
+            all_ticked = bool(shown_items) and all(i["ticked"] for i in shown_items)
+            self.tick_btn.setText(f"Untick all {shown}" if all_ticked else f"Tick all {shown}" if shown else
+                                  "Tick all shown")
+            self.tick_btn.setEnabled(bool(shown))
+            self.tick_btn.setVisible(bool(total))
+            self.filter_btn.setVisible(bool(total) or bool(self.proxy.rules))
 
     def _recolour(self):
         for k, ic in (("list", "list"), ("grid", "grid"), ("gallery", "gallery")):
             self.views.buttons[k].setIcon(icons.icon(ic, theme.SEC, 14))
+        self.tick_btn.setIcon(icons.icon("tick_all", theme.SEC, 16))
+        self.filter_btn.setIcon(icons.icon("filter", theme.SEC, 16))
         self.sort_dir.setIcon(icons.icon("sort_down" if self.sort_dir.isChecked() else "sort_up", theme.SEC, 14))
         self.table.verticalHeader().setDefaultSectionSize(theme.ROW_H)
         if self.tree is not None:
