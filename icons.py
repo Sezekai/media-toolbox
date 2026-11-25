@@ -207,7 +207,7 @@ def _draw(name, colour, size):
         line((17, 7), (7, 17))
     elif name == "logo":         # a gear with a play button (the same mark as the app's icon)
         import app_icon
-        app_icon.mark(d, k, colour, (0, 0, 0, 0))
+        img.alpha_composite(app_icon.mark_layer(img.width, colour).resize(img.size))
     return img
 
 
