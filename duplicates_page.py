@@ -481,6 +481,8 @@ class DuplicatesPage(ToolPage):
         self.gpu_note.setText(("Decoding on the GPU. " if ok else "") + gpu_reason if installed else "")
 
     def refresh_buttons(self):
+        if not hasattr(self, "btn_recycle"):
+            return  # still being built (the saved video list loads before the buttons exist)
         if self.mode.value() == "folder":
             self.set_main(self.scan_btn, "Scan the folder", "a scan")
         else:

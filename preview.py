@@ -3,6 +3,9 @@
 Only one video plays at a time anywhere in the app. The Gallery player remembers its volume and always starts
 from the beginning. Hover previews are silent and are off in safe mode. If Qt's video support is missing, the
 app shows still pictures instead."""
+import weakref
+from pathlib import Path
+
 from PySide6.QtCore import QEvent, QObject, QRectF, QSizeF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import QFrame, QGraphicsScene, QGraphicsView, QHBoxLayout, QSlider, QVBoxLayout, QWidget
@@ -21,6 +24,39 @@ except Exception:  # Qt Multimedia missing or broken on this PC
 
 SAFE_MODE = False
 _playing = None  # the one player that may play
+
+
+_players = weakref.WeakSet()
+_release_hooks = []
+
+
+def on_release(fn):
+    """Also call fn() when files must be let go (screens with their own players, like Compare)."""
+    _release_hooks.append(fn)
+
+
+def release_all():
+    """Stop every player and let go of its file, so Windows lets the file be moved, recycled or rewritten.
+    (A stopped QMediaPlayer still holds its file open.) Called on the UI thread before each job starts."""
+    global _playing
+    _playing = None
+    for player in list(_players):
+        try:
+            player.release()
+        except RuntimeError:
+            pass
+    for fn in list(_release_hooks):
+        try:
+            fn()
+        except Exception:
+            pass
+    if _hover is not None:
+        try:
+            _hover.stop()
+            if _hover.player is not None:
+                _hover.player.setSource(QUrl())
+        except RuntimeError:
+            pass
 
 
 def _claim(player):
@@ -96,6 +132,8 @@ class Player(QWidget):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(6)
         self.ok = AVAILABLE
+        self._released = None
+        _players.add(self)
         if not self.ok:
             v.addWidget(label("Videos can't play inside the app on this PC. Use Open to play it in your player.",
                               "empty", wrap=True), 1)
@@ -140,6 +178,7 @@ class Player(QWidget):
         if not self.ok:
             return
         self._ensure()
+        self._released = None
         self.player.setSource(QUrl.fromLocalFile(str(path)))
         self.player.setPosition(0)  # always from the beginning
         if play:
@@ -153,12 +192,25 @@ class Player(QWidget):
         if self.player.playbackState() == QMediaPlayer.PlayingState:
             self.player.pause()
         else:
+            if self._released is not None and self.player.source().isEmpty():
+                src, self._released = self._released, None
+                if src.isLocalFile() and Path(src.toLocalFile()).exists():
+                    self.player.setSource(src)  # it was let go for a job; open it again
             _claim(self)
             self.player.play()
 
     def stop(self):
         if self.ok and self.player is not None:
             self.player.stop()
+
+    def release(self):
+        """Stop and close the file; the same video loads again when played."""
+        if self.ok and self.player is not None:
+            src = self.player.source()
+            self.player.stop()
+            self.player.setSource(QUrl())
+            self._released = src
+
 
     def _volume(self, value):
         if self.player is not None:

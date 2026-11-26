@@ -27,6 +27,7 @@ import theme
 import version
 from app_pages import LookPage, SettingsPage
 from cover_page import CoverPage
+from compare_page import ComparePage
 from downloads_page import DownloadsPage
 from duplicates_page import DuplicatesPage
 from gif_page import GifPage
@@ -41,6 +42,7 @@ TOOLS = [
     ("cover", "Video thumbnails", "Thumbnail", "cover", CoverPage),
     ("stills", "Make stills", "Stills", "stills", StillsPage),
     ("dup", "Duplicate videos", "Duplicates", "duplicate", DuplicatesPage),
+    ("compare", "Compare videos", "Compare", "compare", ComparePage),
     ("webp", "WebP to JPG", "WebP", "image", WebpPage),
     ("zip", "Zip subfolders", "Zip", "zip", ZipPage),
     ("copy", "Copy folder structure", "Structure", "copy_folder", CopyPage),

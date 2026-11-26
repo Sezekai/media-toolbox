@@ -214,6 +214,11 @@ class JobQueue(QObject):
         self.changed.emit()
 
     def _start(self, job):
+        try:  # players and previews let go of their files, so moves and recycles aren't refused as "in use"
+            import preview
+            preview.release_all()
+        except Exception:
+            pass
         self.current = job
         job.started = time.monotonic()
         job.last_change = job.started

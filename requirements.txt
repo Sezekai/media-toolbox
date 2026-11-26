@@ -4,3 +4,4 @@ send2trash
 pyinstaller
 truststore
 certifi
+numpy

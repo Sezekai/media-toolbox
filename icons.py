@@ -168,6 +168,22 @@ def _draw(name, colour, size):
     elif name == "copy":
         box(8.5, 8.5, 20, 20, 2)
         line((15.5, 5.5), (15.5, 5), (14.5, 4), (5, 4), (4, 5), (4, 14.5), (5, 15.5), (5.5, 15.5))
+    elif name == "compare":      # two screens side by side
+        box(2.5, 6, 11, 17, 1.5)
+        box(13, 6, 21.5, 17, 1.5)
+        line((5, 20), (8.5, 20))
+        line((15.5, 20), (19, 20))
+    elif name == "sound":        # a speaker with waves
+        line((4, 9.5), (7.5, 9.5), (12, 5.5), (12, 18.5), (7.5, 14.5), (4, 14.5), (4, 9.5))
+        d.arc([10 * k, 8 * k, 18 * k, 16 * k], -55, 55, fill=colour, width=w)
+        d.arc([10 * k, 5 * k, 21 * k, 19 * k], -55, 55, fill=colour, width=w)
+    elif name == "mute":
+        line((4, 9.5), (7.5, 9.5), (12, 5.5), (12, 18.5), (7.5, 14.5), (4, 14.5), (4, 9.5))
+        line((15, 9.5), (20, 14.5))
+        line((20, 9.5), (15, 14.5))
+    elif name == "merge":        # two lines joining into one
+        line((5, 5), (5, 10), (12, 15), (12, 20))
+        line((19, 5), (19, 10), (12, 15))
     elif name == "filter":       # a funnel
         line((4, 5), (20, 5), (14, 12.5), (14, 19), (10, 17), (10, 12.5), (4, 5))
     elif name == "tick_all":     # two ticked boxes

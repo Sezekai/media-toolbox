@@ -477,15 +477,27 @@ class Ticking(QObject):
             self.ticks_changed.emit()
 
     def _tint(self, item):
+        """Colour a ticked row. Colouring counts as a change to Qt, so signals are held off while it's done:
+        otherwise each tint re-ran every listener (and the whole retint), which froze and then crashed the app
+        on big duplicate results."""
         from PySide6.QtGui import QBrush, QColor
         ticked = item.checkState(0) == Qt.Checked
         brush = QBrush(QColor(theme.TINT_TICK)) if ticked else QBrush()
-        for c in range(self.tree.columnCount()):
-            item.setBackground(c, brush)
+        was = self.tree.blockSignals(True)
+        try:
+            for c in range(self.tree.columnCount()):
+                if item.background(c) != brush:
+                    item.setBackground(c, brush)
+        finally:
+            self.tree.blockSignals(was)
 
     def retint(self):
-        for item in self._visible_items():
-            self._tint(item)
+        was = self.tree.blockSignals(True)
+        try:
+            for item in self._visible_items():
+                self._tint(item)
+        finally:
+            self.tree.blockSignals(was)
 
     def tick_all(self, on=True):
         self.tree.blockSignals(True)

@@ -230,6 +230,11 @@ def stylesheet():
     QLabel#drophint {{ background: {mix(GROUND, HIGHLIGHT, 0.14)}; border: 2px dashed {OUTLINE};
         border-radius: {rp}px; color: {TEXT}; font-size: {text_px("title") + 2}px; font-weight: 600; }}
     QFrame#setrow {{ background: {PANEL}; border: 1px solid {LINE}; border-radius: {rc + 2}px; }}
+    QFrame#ctile {{ background: {PANEL}; border: 1px solid {LINE}; border-radius: {rp}px; }}
+    QFrame#ctile[best="true"] {{ border: {ow}px solid {ACCENT}; }}
+    QFrame#ctile[drop="true"] {{ border: 1px dashed {DANGER}; background: {GROUND}; }}
+    QLabel#tilenum {{ background: {RAISED2}; border-radius: 4px; padding: 0 6px; }}
+    QLabel#comparenote {{ background: rgba(0, 0, 0, 160); color: {TEXT}; border-radius: 6px; padding: 6px 12px; }}
     QFrame#filterbar {{ background: {RAISED}; border: 1px solid {LINE}; border-radius: {rp}px; }}
     QPushButton[active="true"], QPushButton[kind="ghost"][active="true"] {{ color: {ACCENT}; border: 1px solid {ACCENT}; }}
     QFrame#keyrow {{ border-bottom: 1px solid {mix(PANEL, LINE, 0.6)}; border-radius: 0px; }}

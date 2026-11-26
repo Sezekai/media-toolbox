@@ -234,13 +234,25 @@ class LogoTile(QWidget):
         self.setFixedSize(36, 36)
         self.setToolTip(f"Media Toolbox {version.__version__}")
 
+    _cache = {}
+
     def paintEvent(self, event):
+        """The logo on its own in the theme's accent gradient, with a soft shadow (no tile behind it)."""
+        dpr = self.devicePixelRatioF()
+        key = (tuple(theme.STOPS), theme.ANGLE, dpr)
+        pm = self._cache.get(key)
+        if pm is None:
+            import app_icon
+            from PySide6.QtGui import QImage, QPixmap
+            px = int(round(36 * dpr))
+            img = app_icon.logo_image(px, list(theme.STOPS), theme.ANGLE)
+            q = QImage(img.tobytes("raw", "RGBA"), px, px, 4 * px, QImage.Format_RGBA8888).copy()
+            pm = QPixmap.fromImage(q)
+            pm.setDevicePixelRatio(dpr)
+            self._cache.clear()
+            self._cache[key] = pm
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        path = QPainterPath()
-        path.addRoundedRect(0, 0, 36, 36, 8, 8)
-        p.fillPath(path, theme.qgradient(36, 36))
-        p.drawPixmap(3, 3, icons.pixmap("logo", "#ffffff", 30))
+        p.drawPixmap(0, 0, pm)
         p.end()
 
 
@@ -738,6 +750,9 @@ class MainWindow(QMainWindow):
             return
         if key != self.current_key:
             self._previous_key = self.current_key
+            old = self.pages.get(self.current_key)
+            if old is not None and hasattr(old, "hidden"):
+                old.hidden()  # e.g. Compare pauses its videos when you leave it
         self.current_key = key
         self.stack.setCurrentWidget(self.pages[key].parentWidget())
         self.rail.set_active(key)
@@ -972,6 +987,9 @@ class MainWindow(QMainWindow):
             if page:
                 page.tick_all()
             return True
+        if page is not None and hasattr(page, "key_event") and not typing and not (mods & Qt.AltModifier):
+            if page.key_event(key, mods):
+                return True
         if ctrl or (mods & Qt.AltModifier) or typing:
             return False
         in_list = isinstance(QApplication.focusWidget(), QAbstractItemView)

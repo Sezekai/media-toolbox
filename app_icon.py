@@ -1,5 +1,5 @@
-"""The app's icon: a rounded square in Sunset (amber, pink, violet), with the Media Toolbox mark (a gear with
-a play button in it) in white with a soft shadow. Like the suite's other apps, the square fills the whole icon, so it's as big as other apps' icons
+"""The app's icon: the Media Toolbox mark (a gear with a play button in it) on its own, filled with the Sunset
+gradient (amber, pink, violet), with a soft shadow. Like the suite's other apps, the square fills the whole icon, so it's as big as other apps' icons
 in the taskbar and File Explorer.
 
 `python app_icon.py MediaToolbox.ico` writes the .ico the build puts into the .exe."""
@@ -10,6 +10,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 import math
 
 STOPS = [(0xff, 0xb3, 0x47), (0xff, 0x6a, 0x88), (0xb4, 0x7c, 0xff)]  # Sunset: amber, pink, violet
+ANGLE = 146  # the same direction as the Sunset theme's accent
 INK = (0xff, 0xff, 0xff)  # the gear and play are white on the gradient
 SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
 
@@ -72,27 +73,58 @@ def mark_layer(big, colour=INK, shadow=True):
     return out
 
 
-def image(size):
-    """The icon at size × size pixels (drawn 4× larger, then scaled down, for smooth edges)."""
-    big = size * 4
-    margin = round(big * (0.0 if size <= 24 else 0.03))  # tiny sizes use every pixel
-    strip = Image.new("RGB", (big, 1))
-    px = strip.load()
-    for x in range(big):
-        t = x / (big - 1) * (len(STOPS) - 1)
-        i = min(int(t), len(STOPS) - 2)
+def _gradient(big, stops, angle):
+    """A big × big RGB image of the colours along a CSS-style angle (degrees, 90 = left to right)."""
+    a = math.radians(angle)
+    sx, sy = math.sin(a), -math.cos(a)
+    n = len(stops) - 1
+    # the colour at each position along the gradient line, as a lookup
+    line = []
+    for k in range(256):
+        t = k / 255 * n
+        i = min(int(t), n - 1)
         f = t - i
-        px[x, 0] = tuple(round(a + (b - a) * f) for a, b in zip(STOPS[i], STOPS[i + 1]))
-    fill = strip.resize((big, big))
-    mask = Image.new("L", (big, big), 0)
-    ImageDraw.Draw(mask).rounded_rectangle([margin, margin, big - 1 - margin, big - 1 - margin], big * 0.22,
-                                           fill=255)
-    img = Image.new("RGBA", (big, big), (0, 0, 0, 0))
-    img.paste(fill, (0, 0), mask)
-    layer = mark_layer(big)
-    layer.putalpha(ImageChops.multiply(layer.split()[3], mask))  # the shadow stays inside the square
-    img.alpha_composite(layer)
-    return img.resize((size, size), Image.LANCZOS)
+        line.append(tuple(round(c0 + (c1 - c0) * f) for c0, c1 in zip(stops[i], stops[i + 1])))
+    small = 64
+    img = Image.new("RGB", (small, small))
+    px = img.load()
+    half = (abs(sx) + abs(sy)) / 2
+    for y in range(small):
+        for x in range(small):
+            u, v = (x + 0.5) / small - 0.5, (y + 0.5) / small - 0.5
+            t = min(1.0, max(0.0, (u * sx + v * sy) / (2 * half) + 0.5))
+            px[x, y] = line[round(t * 255)]
+    return img.resize((big, big), Image.BILINEAR)
+
+
+def logo_image(size, stops=None, angle=ANGLE):
+    """The logo on its own: the mark filled with the gradient, with a soft shadow, filling the whole size.
+    Used for the app's icon (Explorer, taskbar, window) and, in the theme's accent, at the top of the rail."""
+    stops = [tuple(int(c.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)) if isinstance(c, str) else c
+             for c in (stops or STOPS)]
+    if len(stops) == 1:
+        stops = stops * 2
+    big = size * 4
+    grow = 1.16  # the gear fills the square, leaving a little room for its shadow
+    m_big = int(big * grow)
+    mark = mark_mask(m_big)
+    off = (big - m_big) // 2
+    m = Image.new("L", (big, big), 0)
+    m.paste(mark, (off, off - int(big / 24 * 0.3)))
+    u = big / 24
+    out = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+    strength = 0.38 if size <= 24 else 0.5
+    sh = ImageChops.offset(m, 0, max(1, int(0.45 * u))).filter(ImageFilter.GaussianBlur(0.7 * u))
+    out.putalpha(sh.point(lambda v: int(v * strength)))
+    fill = _gradient(big, stops, angle).convert("RGBA")
+    fill.putalpha(m)
+    out.alpha_composite(fill)
+    return out.resize((size, size), Image.LANCZOS)
+
+
+def image(size):
+    """The app's icon at size × size pixels."""
+    return logo_image(size)
 
 
 def write_ico(path):
