@@ -311,14 +311,14 @@ class ComparePage(Page):
     icon = "compare"
     own_keys = ("Compare videos", [
         ("Space", "Play or pause every video"), ("Click a video", "Play or pause"),
-        (", / .", "Back or forward 3 seconds"), ("Shift+← →", "Back or forward 5 seconds"),
-        ("9 / 0", "A frame back or forward"), ("[ / ]", "Slower or faster"),
+        ("← →", "Back or forward 3 seconds"), ("Shift+← →", "Back or forward 5 seconds"),
+        (", / .", "A frame back or forward (9 / 0 too)"), ("[ / ]", "Slower or faster"),
         ("1–8", "Listen to that copy's sound"), ("Ctrl+1–8", "Keep or recycle that copy"),
         ("M", "Mute or unmute"), ("↑ ↓", "Volume"),
         ("Wheel on a video", "Zoom that video in or out"), ("Drag a video", "Move around a zoomed video"),
         ("Double-click a video", "Fit it again"), ("+ / −", "Zoom every video"), ("Z", "Fit every video"),
         ("C", "Combine picture and sound on or off"), ("Enter", "Apply and go to the next comparison"),
-        ("← →  PgUp PgDn", "Previous or next comparison"), ("Home / End", "First or last comparison"),
+        ("PgUp PgDn", "Previous or next comparison"), ("Home / End", "First or last comparison"),
         ("H, then F", "Hide everything but the videos, then full screen"), ("Ctrl+A", "Keep all, or none")])
 
     def build(self):
@@ -353,6 +353,23 @@ class ComparePage(Page):
         self.find_btn.clicked.connect(self.find)
         row.addWidget(self.find_btn)
         rows.addLayout(row)
+        row2 = tool_row()
+        s = settings.load()
+        self.move_on = QCheckBox("Move kept videos to")
+        self.move_on.setChecked(bool(s.get("compare_move_on")))
+        self.move_on.setToolTip("After applying, the videos you kept move here and the comparison's folder, once "
+                                "empty, goes to the Recycle Bin. Moves can be undone (Ctrl+Z).")
+        self.move_on.toggled.connect(self._move_changed)
+        row2.addWidget(self.move_on)
+        self.move_to = line_edit(s.get("compare_move_to", ""), "Choose where kept videos go")
+        self.move_to.editingFinished.connect(self._move_changed)
+        row2.addWidget(self.move_to, 1)
+        move_browse = button("Browse")
+        move_browse.clicked.connect(self._browse_move)
+        row2.addWidget(move_browse)
+        self.move_note = label("then the emptied folders go to the Recycle Bin", "caption")
+        row2.addWidget(self.move_note)
+        rows.addLayout(row2)
         self.body.addWidget(bar)
         self.panels.append(bar)
 
@@ -466,6 +483,26 @@ class ComparePage(Page):
             self.folder.setText(str(Path(chosen)))
             self._folder_typed()
             self.find()
+
+    def _browse_move(self):
+        chosen = QFileDialog.getExistingDirectory(self, "Move kept videos to", self.move_to.text().strip())
+        if chosen:
+            self.move_to.setText(str(Path(chosen)))
+            self.move_on.setChecked(True)
+            self._move_changed()
+
+    def _move_changed(self, *_a):
+        settings.save({"compare_move_on": self.move_on.isChecked(),
+                       "compare_move_to": self.move_to.text().strip()})
+        self.move_to.setEnabled(True)
+        self._decision_changed()
+
+    def _move_target(self):
+        """The folder kept videos move to, or None when moving is off."""
+        if not self.move_on.isChecked():
+            return None
+        target = self.move_to.text().strip()
+        return target or None
 
     def _folder_typed(self):
         settings.save({"compare_root": self.folder.text().strip()})
@@ -849,6 +886,8 @@ class ComparePage(Page):
         if combining:
             p, s = self.pic_from.currentData() + 1, self.snd_from.currentData() + 1
             text += f" · copy {p} gets copy {s}'s sound"
+        if self._move_target():
+            text += f" · kept ones move to {Path(self._move_target()).name}"
         self.decision.setText(text)
         self.apply_btn.setEnabled(bool(keep) or bool(combining))
 
@@ -877,12 +916,25 @@ class ComparePage(Page):
         if combining:
             what.append(f"Copy {pic + 1} gets copy {snd + 1}'s sound (its picture is copied unchanged).")
         what.append(f"{plural(len(drop), 'copy', 'copies')} go to the Recycle Bin." if drop else "Nothing is recycled.")
-        if drop and not dialogs.ask(f"Recycle {plural(len(drop), 'copy', 'copies')}?", " ".join(what),
+        move_to = self._move_target()
+        if self.move_on.isChecked() and not move_to:
+            dialogs.info("Choose where kept videos go", "Choose a folder for Move kept videos to, or untick it.",
+                         icon_name="folder")
+            return True
+        if move_to:
+            root = self.folder.text().strip()
+            group_folder = self.groups[self.index]["folder"]
+            what.append(f"The kept {'copy moves' if len(keep) == 1 else 'copies move'} to {move_to}" +
+                        (", then this comparison's folder goes to the Recycle Bin once it's empty."
+                         if Path(group_folder) != Path(root) else "."))
+        if (drop or move_to) and not dialogs.ask(
+                f"Recycle {plural(len(drop), 'copy', 'copies')}?" if drop else "Move the kept copies?", " ".join(what),
                                     "Apply", kind="danger" if drop else "primary", icon_name="trash",
                                     items=[(infos[k]["name"], "to the Recycle Bin") for k in drop]):
             return True
         job_data = {"infos": infos, "offsets": list(self.offsets), "pic": pic, "snd": snd, "drop": drop,
-                    "folder": self.groups[self.index]["folder"]}
+                    "keep": keep, "folder": self.groups[self.index]["folder"], "move_to": move_to,
+                    "root": self.folder.text().strip()}
         self.pause()
         self.release_files(forget=True)
         self.grid.set_tiles([])
@@ -899,7 +951,7 @@ class ComparePage(Page):
 
     def _apply_job(self, d, log, progress):
         infos, errors = d["infos"], []
-        steps = len(d["drop"]) + (2 if d["pic"] is not None else 0)
+        steps = len(d["drop"]) + (2 if d["pic"] is not None else 0) + (len(d["keep"]) if d.get("move_to") else 0)
         done = 0
         combined = None
         if d["pic"] is not None:
@@ -934,10 +986,44 @@ class ComparePage(Page):
                     errors.append(str(exc))
                     log(f"Skipped: {exc}")
             done += 1
+        moved = []
+        if d.get("move_to"):
+            dest = Path(d["move_to"])
+            for k in d["keep"]:
+                path = Path(infos[k]["path"])
+                if not path.exists():
+                    continue
+                progress(done, steps, f"Moving {path.name}")
+                try:
+                    target = fileops.move_file(path, dest)
+                    moved.append((str(path), str(target)))
+                    log(f"Moved {path.name} → {target}")
+                except OSError as exc:
+                    errors.append(f"Couldn't move {path.name}: {exc}")
+                    log(errors[-1])
+                done += 1
+            if moved:
+                import movelog
+                movelog.record("Compare videos", f"Moved {len(moved)} kept video(s) to {dest.name}",
+                               [("move", s, t) for s, t in moved])
+            folder = Path(d["folder"])
+            if folder != Path(d["root"]) and folder.is_dir() and not any(
+                    p for p in folder.iterdir() if p.name.lower() not in ("desktop.ini", "thumbs.db", ".ds_store")):
+                try:
+                    fileops.recycle(folder)
+                    log(f"Sent the emptied folder {folder.name} to the Recycle Bin.")
+                except fileops.RecycleError as exc:
+                    errors.append(str(exc))
+                    log(errors[-1])
+            elif folder != Path(d["root"]) and folder.is_dir():
+                left = [p.name for p in folder.iterdir()][:5]
+                log(f"Left the folder {folder.name} where it is: it still has {', '.join(left)}.")
         progress(steps, steps, "Done")
         summary = f"{plural(len(d['drop']) - sum(1 for e in errors if 'Recycle Bin' in e), 'copy', 'copies')} recycled"
         if combined:
             summary = "combined, " + summary
+        if moved:
+            summary += f", {len(moved)} moved"
         return {"summary": summary, "errors": errors, "folder": d["folder"]}
 
     def _applied(self, job):
@@ -1011,12 +1097,13 @@ class ComparePage(Page):
             return True
         if ctrl:
             return False
+        if key in (Qt.Key_Left, Qt.Key_Right):
+            sign = -1 if key == Qt.Key_Left else 1
+            return self.seek_by(sign * (5 if shift else 3))
         if key == Qt.Key_Comma:
-            return self.seek_by(-3)
+            return self.frame(-1)
         if key == Qt.Key_Period:
-            return self.seek_by(3)
-        if shift and key in (Qt.Key_Left, Qt.Key_Right):
-            return self.seek_by(-5 if key == Qt.Key_Left else 5)
+            return self.frame(1)
         if key == Qt.Key_9:
             return self.frame(-1)
         if key == Qt.Key_0:

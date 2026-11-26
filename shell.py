@@ -876,11 +876,18 @@ class MainWindow(QMainWindow):
 
     def toggle_fullscreen(self):
         if self.isFullScreen():
-            self.showNormal()
-            if self._maxed:
-                self.setGeometry(self.screen().availableGeometry())
+            # back to how the window was before full screen: maximised stays maximised
+            if getattr(self, "_was_maximized", False):
+                if self.native or not (self.frameless and sys.platform == "win32"):
+                    self.showMaximized()
+                else:
+                    self.showNormal()
+                    self.setGeometry(self.screen().availableGeometry())
+            else:
+                self.showNormal()
             self.titlebar.setVisible(self.frameless)
         else:
+            self._was_maximized = self.isMaximized() or self._maxed
             self.titlebar.setVisible(False)  # full screen hides the strip
             self.showFullScreen()
         self._frame_changed()
