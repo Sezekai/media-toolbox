@@ -50,7 +50,12 @@ def _state_file():
 
 # ----- one video: zoom with the wheel, drag to move, click to play or pause, double-click to fit -----
 class ZoomView(QGraphicsView):
+    """Wheel zooms and dragging moves every video together (the page passes it on); with Ctrl held, only this
+    one. Positions are passed as fractions of the view, so videos of different sizes move alike."""
     clicked = Signal()
+    zoom_all = Signal(float, float, float)   # factor, x and y of the pointer as fractions of the view
+    pan_all = Signal(float, float)           # how far to move, as fractions of the view
+    fit_all = Signal()
 
     def __init__(self):
         super().__init__()
@@ -71,7 +76,8 @@ class ZoomView(QGraphicsView):
         self.note = QLabel(self.viewport())
         self.note.setObjectName("comparenote")
         self.note.hide()
-        self.setToolTip("Wheel: zoom · drag: move · click: play or pause · double-click: fit")
+        self.setToolTip("Wheel: zoom all · drag: move all · with Ctrl: just this one · click: play or pause · "
+                        "double-click: fit")
         self.setMinimumSize(80, 60)
 
     def resizeEvent(self, event):
@@ -86,16 +92,31 @@ class ZoomView(QGraphicsView):
         self.scene().setSceneRect(QRectF(0, 0, w, h))
 
     def zoom_by(self, factor, at=None):
+        """Zoom, keeping the picture under `at` (a point in the view; the middle when None) where it is."""
         new = max(1.0, min(16.0, self.scale_ * factor))
         if abs(new - self.scale_) < 1e-6:
             return
-        if at is None:
-            self.setTransformationAnchor(QGraphicsView.AnchorViewCenter)
+        vp = self.viewport()
+        at = QPointF(vp.width() / 2, vp.height() / 2) if at is None else QPointF(at)
+        before = self.mapToScene(at.toPoint())
+        self.setTransformationAnchor(QGraphicsView.NoAnchor)
         self.scale(new / self.scale_, new / self.scale_)
-        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.scale_ = new
+        after = self.mapFromScene(before)
+        self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + int(after.x() - at.x()))
+        self.verticalScrollBar().setValue(self.verticalScrollBar().value() + int(after.y() - at.y()))
+        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         if new == 1.0:
             self.fit()
+
+    def zoom_frac(self, factor, fx, fy):
+        vp = self.viewport()
+        self.zoom_by(factor, QPointF(fx * vp.width(), fy * vp.height()))
+
+    def pan_frac(self, fdx, fdy):
+        vp = self.viewport()
+        self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - int(round(fdx * vp.width())))
+        self.verticalScrollBar().setValue(self.verticalScrollBar().value() - int(round(fdy * vp.height())))
 
     def fit(self):
         self.resetTransform()
@@ -105,7 +126,13 @@ class ZoomView(QGraphicsView):
     def wheelEvent(self, event):
         steps = event.angleDelta().y() / 120
         if steps:
-            self.zoom_by(1.25 ** steps, event.position())
+            factor = 1.25 ** steps
+            if event.modifiers() & Qt.ControlModifier:
+                self.zoom_by(factor, event.position())          # Ctrl: just this video
+            else:
+                vp = self.viewport()
+                self.zoom_all.emit(factor, event.position().x() / max(1, vp.width()),
+                                   event.position().y() / max(1, vp.height()))
         event.accept()
 
     def mousePressEvent(self, event):
@@ -120,8 +147,12 @@ class ZoomView(QGraphicsView):
         if self._last is not None:
             d = event.position() - self._last
             self._last = event.position()
-            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - int(d.x()))
-            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - int(d.y()))
+            vp = self.viewport()
+            fdx, fdy = d.x() / max(1, vp.width()), d.y() / max(1, vp.height())
+            if event.modifiers() & Qt.ControlModifier:
+                self.pan_frac(fdx, fdy)                           # Ctrl: just this video
+            else:
+                self.pan_all.emit(fdx, fdy)
             event.accept()
             return
         super().mouseMoveEvent(event)
@@ -139,7 +170,10 @@ class ZoomView(QGraphicsView):
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.fit()
+            if event.modifiers() & Qt.ControlModifier:
+                self.fit()
+            else:
+                self.fit_all.emit()
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
@@ -315,8 +349,10 @@ class ComparePage(Page):
         (", / .", "A frame back or forward (9 / 0 too)"), ("[ / ]", "Slower or faster"),
         ("1–8", "Listen to that copy's sound"), ("Ctrl+1–8", "Keep or recycle that copy"),
         ("M", "Mute or unmute"), ("↑ ↓", "Volume"),
-        ("Wheel on a video", "Zoom that video in or out"), ("Drag a video", "Move around a zoomed video"),
-        ("Double-click a video", "Fit it again"), ("+ / −", "Zoom every video"), ("Z", "Fit every video"),
+        ("Wheel", "Zoom every video, at the pointer"), ("Ctrl+wheel", "Zoom just the video under the pointer"),
+        ("Drag", "Move around every zoomed video"), ("Ctrl+drag", "Move just that video"),
+        ("Double-click", "Fit every video (Ctrl: just that one)"), ("+ / −", "Zoom every video"),
+        ("Z", "Fit every video"),
         ("C", "Combine picture and sound on or off"), ("Enter", "Apply and go to the next comparison"),
         ("PgUp PgDn", "Previous or next comparison"), ("Home / End", "First or last comparison"),
         ("H, then F", "Hide everything but the videos, then full screen"), ("Ctrl+A", "Keep all, or none")])
@@ -579,6 +615,9 @@ class ComparePage(Page):
             t.listen_requested.connect(self.listen)
             t.nudged.connect(self.nudge)
             t.view.clicked.connect(self.toggle)
+            t.view.zoom_all.connect(lambda f, x, y: [tt.view.zoom_frac(f, x, y) for tt in self.grid.tiles])
+            t.view.pan_all.connect(lambda dx, dy: [tt.view.pan_frac(dx, dy) for tt in self.grid.tiles])
+            t.view.fit_all.connect(self.fit)
             t.set_offset(self.offsets[k], self.data["sure"][k])
             t.head.setVisible(not self.app.panels_hidden)
             tiles.append(t)
